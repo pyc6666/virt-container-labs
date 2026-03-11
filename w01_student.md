@@ -11,7 +11,7 @@
 ## 先備知識
 
 - 已在 Host OS 完成 VMware Workstation Pro 安裝並可正常啟動
-  - 若尚未安裝，請先參閱 [VMware Workstation Pro 安裝補充指南](./vmware-workstation-pro-installation-supplement.zh-TW.md)（含 Windows/Linux 主機安裝流程與 Mac 替代路徑）
+  - 若尚未安裝，請先參閱 [VMware Workstation Pro 安裝補充指南](./vmware-workstation-pro-installation.md)（含 Windows/Linux 主機安裝流程與 Mac 替代路徑）
 - 能操作 Linux 終端機，輸入命令並觀察輸出。
 - 已建立本學期工作資料夾（建議 `~/virt-container-labs/`）以集中彙整作業。
 
