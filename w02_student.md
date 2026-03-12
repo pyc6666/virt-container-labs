@@ -49,10 +49,7 @@ flowchart LR
     style INET fill:#d1fae5,stroke:#333
 ```
 
-- VM 拿到的是私有 IP（例如 192.168.xxx.10），外網看到的來源 IP 是 Host 的實體 IP。
-- VM 可以**主動連出去**（上網、拉套件），但外部無法主動連進 VM。
-- 同一 NAT 網段的 VM 之間理論上可互通，但因為經過 NAT 引擎，行為不如 Host-only 直接。
-- **適合場景：** VM 需要上網但不需要被外部存取。
+VM 拿到的是私有 IP（例如 192.168.xxx.10），外網看到的來源 IP 是 Host 的實體 IP。VM 可以**主動連出去**（上網、拉套件），但外部無法主動連進 VM。同一 NAT 網段的 VM 之間理論上可互通，但經過 NAT 引擎，行為不如 Host-only 直接。適合 VM 需要上網但不需要被外部存取的場景。
 
 #### Bridged（橋接）
 
@@ -68,10 +65,7 @@ flowchart LR
     style LAN fill:#d1fae5,stroke:#333
 ```
 
-- VM 的虛擬網卡直接橋接到 Host 的實體網卡，VM 拿到與 Host **同網段**的 IP。
-- 區域網路上的其他裝置可以直接看到 VM，就像 VM 是一台實體機。
-- **適合場景：** VM 需要像實體機一樣出現在區域網路（例如提供服務讓其他電腦連入）。
-- **風險：** 在教室的共用網路中使用 Bridged，所有同學的 VM 都在同一網段，可能互相干擾。
+VM 的虛擬網卡直接橋接到 Host 的實體網卡，拿到與 Host **同網段**的 IP。區域網路上的其他裝置可以直接看到 VM，就像它是一台實體機——適合需要讓其他電腦連入的場景。不過要注意：在教室共用網路中使用 Bridged，所有同學的 VM 都在同一網段，可能互相干擾。
 
 #### Host-only（僅主機）
 
@@ -87,9 +81,7 @@ flowchart LR
     style HOST fill:#f3f4f6,stroke:#333
 ```
 
-- VM 只能與 Host 及同網段的其他 VM 通訊，**無法上網**。
-- IP 配置穩定（不受外部 DHCP 影響），適合做可重現的內網實驗。
-- **適合場景：** 隔離實驗環境、VM 之間的內部通訊。
+VM 只能與 Host 及同網段的其他 VM 通訊，**無法上網**。因為不受外部 DHCP 影響，IP 配置穩定，很適合做可重現的隔離實驗環境。
 
 #### 三種模式比較
 
@@ -103,11 +95,7 @@ flowchart LR
 
 ### 三、為什麼需要雙網卡設計
 
-單靠一種模式無法同時滿足「上網」和「VM 互連」：
-
-- **只用 NAT：** VM 能上網，但 VM 之間的互連繞過 NAT 引擎，不夠直接。
-- **只用 Host-only：** VM 互通，但無法上網裝套件。
-- **雙網卡（NAT + Host-only）：** NAT 負責外網、Host-only 負責內網，職責分離。
+單靠一種模式無法同時滿足「上網」和「VM 互連」。只用 NAT，VM 之間的互連要繞過 NAT 引擎，不夠直接；只用 Host-only，VM 互通但無法上網裝套件。雙網卡設計（NAT + Host-only）讓 NAT 負責外網、Host-only 負責內網，職責分離。
 
 ```mermaid
 flowchart TB
@@ -147,7 +135,7 @@ flowchart TB
 | L3（網路層）       | 路由是否正確？封包能否到達對端？ | `ip route show` → `ping` | 無預設路由、目標不可達 |
 | L4+（傳輸/服務層） | 服務是否在監聽？連線是否被拒？   | `ss -tlnp` → `ssh`       | 服務未啟動、防火牆擋住 |
 
-**原則：** `ping` 成功只代表 L3 可達，不代表服務（如 SSH）一定能連。排錯時先確認介面和路由沒問題，最後才查服務。
+`ping` 成功只代表 L3 可達，不代表服務（如 SSH）一定能連。排錯時先確認介面和路由沒問題，最後才查服務。
 
 ---
 
@@ -157,7 +145,6 @@ flowchart TB
 
 #### 步驟 1：準備兩台 VM
 
-- 目的：建立 `dev-a` 和 `server-b` 兩台 VM。
 - 操作：
   - 方案 A（推薦）：複製 W01 的 VM，分別命名為 `dev-a` 和 `server-b`。
   - 方案 B：用 W01 的 VM 當 `dev-a`，另建一台最小安裝的 Ubuntu VM 當 `server-b`。
@@ -172,11 +159,10 @@ sudo hostnamectl set-hostname server-b  # 在第二台
 hostnamectl
 ```
 
-- 預期輸出：兩台 VM 的 hostname 分別顯示 `dev-a` 和 `server-b`。
+- `hostnamectl` 應分別顯示 `dev-a` 和 `server-b`。
 
 #### 步驟 2：設定 dev-a 雙網卡（NAT + Host-only）
 
-- 目的：讓 `dev-a` 同時能上網和連內網。
 - 操作（VMware GUI）：
   1. VM → Settings → Network Adapter（原有）→ 確認為 NAT。
   2. Add → Network Adapter → 選 Host-only → OK。
@@ -186,11 +172,10 @@ hostnamectl
 ip address show
 ```
 
-- 預期輸出：看到兩張網卡（例如 `ens33` 和 `ens36`），各自有不同網段的 IP。
+- 應看到兩張網卡（例如 `ens33` 和 `ens36`），各自有不同網段的 IP。
 
 #### 步驟 3：設定 server-b 單網卡（Host-only）
 
-- 目的：`server-b` 只需要內網，不需要直接上網。
 - 操作（VMware GUI）：VM → Settings → Network Adapter → 改為 Host-only。
 - 驗證：
 
@@ -198,7 +183,7 @@ ip address show
 ip address show
 ```
 
-- 預期輸出：只看到一張網卡，IP 在 Host-only 網段內。
+- 應只看到一張網卡，IP 在 Host-only 網段內。
 
 #### 步驟 4：確認 dev-a 的 NAT 介面可上網
 
@@ -214,8 +199,7 @@ ping -c 4 8.8.8.8
 ping -c 4 google.com
 ```
 
-- 預期輸出：有預設路由指向 NAT 網段的閘道，ping 成功。
-- 失敗時：確認 NAT 網卡在 VMware 中設定正確，檢查 `ip route` 是否有 `default via ...`。
+- 應有預設路由指向 NAT 閘道，且 ping 成功。如果不通，確認 NAT 網卡設定正確，用 `ip route` 看有沒有 `default via ...`。
 
 #### 步驟 5：確認 dev-a 和 server-b 的 Host-only IP
 
@@ -226,10 +210,8 @@ ip address show
 # 找出 Host-only 介面的 IP，記下來
 ```
 
-- 預期輸出：兩台 VM 的 Host-only 介面都有 IP，且在同一網段（例如 `192.168.56.x`）。
-- 失敗時：
-  - IP 為空 → 檢查 VMware 的 Host-only 網段是否有啟用 DHCP。
-  - 不同網段 → 確認兩台都連到同一個 Host-only 虛擬交換器（VMnet1）。
+- 兩台 VM 的 Host-only 介面都應有 IP，且在同一網段（例如 `192.168.56.x`）。
+- IP 為空 → 檢查 VMware 的 Host-only 網段是否啟用 DHCP。不同網段 → 確認兩台都連到同一個 VMnet1。
 
 #### 步驟 6：雙向互 ping
 
@@ -243,14 +225,12 @@ ping -c 4 <server-b-host-only-ip>
 ping -c 4 <dev-a-host-only-ip>
 ```
 
-- 預期輸出：雙向都成功。
-- 失敗時：
-  - 單向通 → 檢查對端防火牆（`sudo ufw status`）與介面狀態。
-  - 雙向不通 → 回步驟 5 確認兩台在同一 Host-only 網段。
+- 雙向都應成功。單向通 → 檢查對端防火牆（`sudo ufw status`）與介面狀態。雙向不通 → 回步驟 5 確認兩台在同一 Host-only 網段。
 
 #### 步驟 7：在 server-b 安裝並啟用 SSH 服務
 
-- 目的：建立 `dev-a` 到 `server-b` 的管理通道。
+有了 SSH，`dev-a` 就能遠端管理 `server-b`。
+
 - 命令（在 `server-b` 上執行）：
 
 ```bash
@@ -261,20 +241,19 @@ sudo systemctl status ssh --no-pager
 sudo systemctl enable ssh
 ```
 
-- 預期輸出：`ssh` 服務為 `active (running)`。
-- 失敗時：`sudo systemctl start ssh` 再查 `journalctl -u ssh --no-pager -n 10`。
+- `ssh` 服務應為 `active (running)`。如果不是，用 `sudo systemctl start ssh` 啟動，再查 `journalctl -u ssh --no-pager -n 10`。
 
 #### 步驟 8：確認 SSH 服務正在監聽
 
-- 目的：在連線之前先確認服務層（L4）已就緒，不要只靠 ping 判斷。
+在嘗試連線之前，先確認服務層（L4）已就緒——不要只靠 ping 判斷。
+
 - 命令（在 `server-b` 上執行）：
 
 ```bash
 ss -tlnp | grep :22
 ```
 
-- 預期輸出：看到 `0.0.0.0:22` 或 `*:22` 表示 SSH 正在監聽所有介面的 port 22。
-- 重點：`ping` 成功只證明 L3 可達，`ss` 確認 L4 服務就緒，兩者是不同層的驗證。
+- 看到 `0.0.0.0:22` 或 `*:22` 表示 SSH 正在監聽所有介面的 port 22。記住：`ping` 驗證的是 L3 可達性，`ss` 驗證的是 L4 服務就緒，兩者不可互相替代。
 
 #### 步驟 9：從 dev-a SSH 到 server-b
 
@@ -289,7 +268,7 @@ ip address show
 exit
 ```
 
-- 預期輸出：成功登入 `server-b`，`hostname` 顯示 `server-b`。
+- 成功登入後 `hostname` 應顯示 `server-b`。
 - 失敗時的分層排錯：
   1. `ping` 對端 → 不通 → L3 問題，回步驟 6。
   2. `ping` 通但 SSH 被拒（`Connection refused`） → L4 問題，回步驟 7-8 查 SSH 服務。
@@ -297,20 +276,18 @@ exit
 
 #### 步驟 10：從 dev-a 用 SSH 在 server-b 遠端執行命令
 
-- 目的：練習不登入就遠端執行指令。
+SSH 也可以不進入互動 shell，直接在遠端跑命令。
+
 - 命令（在 `dev-a` 上執行）：
 
 ```bash
-# 不進入互動 shell，直接在遠端跑命令
 ssh <server-b-user>@<server-b-host-only-ip> "hostname && ip address show && uptime"
 ```
 
-- 預期輸出：回傳 `server-b` 的 hostname、網路資訊和系統運行時間。
-- 重點：這是未來管理多台機器的基本手法。
+- 應回傳 `server-b` 的 hostname、網路資訊和系統運行時間。
 
 #### 步驟 11：用 SCP 在兩台 VM 之間傳檔
 
-- 目的：練習透過 SSH 通道傳輸檔案。
 - 命令（在 `dev-a` 上執行）：
 
 ```bash
@@ -324,11 +301,12 @@ scp /tmp/test-from-dev.txt <server-b-user>@<server-b-host-only-ip>:/tmp/
 ssh <server-b-user>@<server-b-host-only-ip> "cat /tmp/test-from-dev.txt"
 ```
 
-- 預期輸出：server-b 上顯示 `Hello from dev-a`。
+- server-b 上應顯示 `Hello from dev-a`。
 
 #### 步驟 12：測試 server-b 不能上網（驗證 Host-only 隔離）
 
-- 目的：驗證 Host-only 模式的隔離性——`server-b` 只有 Host-only 網卡，不應該能上網。
+`server-b` 只有 Host-only 網卡，應該無法上網。
+
 - 命令（在 `server-b` 上執行）：
 
 ```bash
@@ -336,19 +314,14 @@ ping -c 4 8.8.8.8
 ip route show
 ```
 
-- 預期輸出：`ping` 失敗（`Network is unreachable` 或全部 timeout），且沒有指向外網的預設路由。
-- 重點：這正好驗證了 Host-only 的設計目的——只允許內網通訊，不連外網。
+- `ping` 應失敗（`Network is unreachable` 或全部 timeout），且沒有指向外網的預設路由。
 
 ---
 
 ### Part A Checkpoint
 
-1. **Checkpoint A1**：雙 VM 網卡配置正確
-
-   - 通過標準：`dev-a` 有兩張網卡（NAT + Host-only），`server-b` 有一張（Host-only），`ip address show` 可確認。
-2. **Checkpoint A2**：連線驗證完整
-
-   - 通過標準：`dev-a` 可上網、雙向互 ping 成功、`dev-a` 可 SSH 到 `server-b`、SCP 傳檔成功、`server-b` 無法上網。
+1. **Checkpoint A1** — 雙 VM 網卡配置正確：`dev-a` 有兩張網卡（NAT + Host-only），`server-b` 有一張（Host-only），用 `ip address show` 確認。
+2. **Checkpoint A2** — 連線驗證完整：`dev-a` 可上網、雙向互 ping 成功、`dev-a` 可 SSH 到 `server-b`、SCP 傳檔成功、`server-b` 無法上網。
 
 ---
 
@@ -356,7 +329,6 @@ ip route show
 
 #### 步驟 13：記錄故障前基線
 
-- 目的：在注入故障前留下完整的正常狀態紀錄。
 - 命令（在 `server-b` 上執行）：
 
 ```bash
@@ -374,11 +346,10 @@ ping -c 2 <server-b-host-only-ip>
 ssh <server-b-user>@<server-b-host-only-ip> "hostname"
 ```
 
-- 預期輸出：全部成功。把這些輸出記錄下來，作為故障後的比對基準。
+- 全部應成功。把輸出記錄下來，作為故障後的比對基準。
 
 #### 步驟 14：故障注入 — 停用 server-b 的 Host-only 介面
 
-- 目的：模擬介面故障，觀測 L2 層問題如何影響 L3 和 L4。
 - 命令（在 `server-b` 上執行）：
 
 ```bash
@@ -392,7 +363,7 @@ sudo ip link set <hostonly-iface> down
 ip address show <hostonly-iface>
 ```
 
-- 預期輸出：介面狀態從 `UP` 變成 `DOWN`，IP 可能仍在但介面不通。
+- 介面狀態會從 `UP` 變成 `DOWN`，IP 可能仍在但介面不通。
 
 #### 步驟 15：從 dev-a 觀測故障
 
@@ -404,8 +375,7 @@ ping -c 4 <server-b-host-only-ip>
 ssh <server-b-user>@<server-b-host-only-ip> "hostname" 2>&1
 ```
 
-- 預期輸出：`ping` 失敗（timeout 或 unreachable），SSH 連線失敗。
-- 重點：一個 L2 層的問題（介面 DOWN）導致 L3（ping）和 L4（SSH）全部失敗。由下往上逐層排除時，在 L2 就會發現問題。
+- `ping` 應失敗（timeout 或 unreachable），SSH 也連不上。注意觀察：一個 L2 層的問題（介面 DOWN）會連帶拖垮 L3 和 L4。如果你由下往上排查，在 L2 就能發現根因。
 
 #### 步驟 16：在 server-b 回復介面
 
@@ -421,8 +391,7 @@ sleep 5
 ip address show <hostonly-iface>
 ```
 
-- 預期輸出：介面狀態回到 `UP`，IP 重新出現。
-- 注意：如果使用 DHCP，回復後 IP 可能會變。先用 `ip address show` 確認新 IP 再繼續。
+- 介面狀態應回到 `UP`，IP 重新出現。如果使用 DHCP，回復後 IP 可能會變——先用 `ip address show` 確認新 IP 再繼續。
 
 #### 步驟 17：回復後驗證
 
@@ -434,11 +403,12 @@ ping -c 4 <server-b-host-only-ip>
 ssh <server-b-user>@<server-b-host-only-ip> "hostname"
 ```
 
-- 預期輸出：與步驟 13 的基線一致。
+- 結果應與步驟 13 的基線一致。
 
 #### 步驟 18：第二次故障注入 — 模擬 SSH 服務停止
 
-- 目的：製造「ping 通但 SSH 不通」的情境，體驗 L3 正常但 L4 故障的差異。
+這次要製造「ping 通但 SSH 不通」的情境，感受 L3 正常但 L4 故障時的差異。
+
 - 命令（在 `server-b` 上執行）：
 
 ```bash
@@ -453,7 +423,7 @@ sudo systemctl stop ssh
 ss -tlnp | grep :22
 ```
 
-- 預期輸出：停止後 `ss` 看不到 port 22 的監聽。
+- 停止後 `ss` 應看不到 port 22 的監聽。
 
 #### 步驟 19：從 dev-a 觀測 L3 通但 L4 不通
 
@@ -467,8 +437,7 @@ ping -c 2 <server-b-host-only-ip>
 ssh <server-b-user>@<server-b-host-only-ip> "hostname" 2>&1
 ```
 
-- 預期輸出：`ping` 成功但 SSH 出現 `Connection refused`。
-- 重點：這就是為什麼排錯要分層——ping 通不代表服務可用。
+- `ping` 應成功，但 SSH 會出現 `Connection refused`。這就是分層排錯的價值所在。
 
 #### 步驟 20：回復 SSH 服務
 
@@ -485,11 +454,12 @@ ss -tlnp | grep :22
 ssh <server-b-user>@<server-b-host-only-ip> "hostname"
 ```
 
-- 預期輸出：SSH 服務回來，連線成功。
+- SSH 服務回來後，連線應恢復正常。
 
 #### 步驟 21：繪製網路拓樸圖
 
-- 目的：把本週的網路架構畫出來，拓樸圖是排錯工具不只是作業附件。
+拓樸圖不只是作業附件——排錯時一張好的拓樸圖能讓你快速定位問題在哪一段。
+
 - 操作：用你習慣的工具（draw.io、手繪掃描、Mermaid）畫出以下資訊：
   - 兩台 VM 的名稱與角色
   - 每張網卡的模式（NAT / Host-only）
@@ -513,12 +483,8 @@ cd ~/virt-container-labs/w02
 
 ### Part B Checkpoint
 
-3. **Checkpoint B1**：介面故障注入有三階段證據
-
-   - 通過標準：有故障前基線、故障中（ping/SSH 失敗）、回復後（恢復正常）的命令輸出對照。
-4. **Checkpoint B2**：SSH 故障注入展示了 L3/L4 分層差異
-
-   - 通過標準：ping 通但 SSH 出現 `Connection refused`，且能說出排錯時為什麼要分層。
+3. **Checkpoint B1** — 介面故障注入有三階段證據：有故障前基線、故障中（ping/SSH 失敗）、回復後（恢復正常）的命令輸出對照。
+4. **Checkpoint B2** — SSH 故障注入展示 L3/L4 分層差異：ping 通但 SSH 出現 `Connection refused`，且能說出排錯時為什麼要分層。
 
 ---
 
