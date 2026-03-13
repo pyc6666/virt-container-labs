@@ -13,6 +13,7 @@ Containerization and Virtualization Technologies
 | W01 | 虛擬化概論、環境建置與 Snapshot 機制 | VMware、Ubuntu VM、Docker 安裝、Snapshot |
 | W02 | VMware 網路模式與雙 VM 排錯 | NAT / Bridged / Host-only、網路診斷 |
 | W03 | 多 VM 架構：分層管理、跳板機與最小暴露設計 | SSH 金鑰認證、ufw 防火牆、ProxyJump |
+| W04 | Linux 系統基礎：檔案系統、權限、程序與服務管理 | FHS、chmod/chown、systemctl/journalctl、$PATH |
 
 ## 環境需求
 
