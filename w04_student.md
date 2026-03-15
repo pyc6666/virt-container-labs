@@ -2,11 +2,11 @@
 
 ## 學習目標
 
-1. 說明 FHS 設計邏輯，指出 Docker 設定檔（`/etc/docker/`）與資料（`/var/lib/docker/`）為何放在各自路徑。
-2. 解讀 Linux 權限模型（owner/group/others × rwx），用 `ls -la`/`stat` 解析 Docker socket 權限，說明 `usermod -aG docker $USER` 的安全意涵。
-3. 區分 Process 與 Service（systemd），用 `ps aux`/`systemctl`/`journalctl` 診斷 Docker daemon 狀態。
-4. 說明 `$PATH` 作用與 command not found 成因。
-5. 完成兩次故障注入（停 daemon + 破壞 socket 權限），對比「Cannot connect」與「permission denied」錯誤訊息。
+1. 搞懂 Linux 目錄結構（FHS），講得出 Docker 的設定檔、資料、執行檔各放在哪、為什麼。
+2. 看懂 Linux 的權限欄位（owner/group/others × rwx），搞清楚 Docker socket 的權限設計，說明 `usermod -aG docker $USER` 的安全意涵。
+3. 分得出 process 跟 service 的差別，用 `ps`/`systemctl`/`journalctl` 抓 Docker daemon 狀態。
+4. 知道 `$PATH` 怎麼運作，碰到 `command not found` 不會慌。
+5. 親手搞壞兩次（停 daemon + 改 socket 權限），搞清楚 `Cannot connect` 跟 `permission denied` 差在哪。
 
 ## 先備知識
 
@@ -16,7 +16,9 @@
 
 ## 問題情境
 
-W01 裝好 Docker 用 sudo 一路順暢，W03 三台 VM 也跑起來了。但某天登入 bastion 打 `docker ps` 回 `permission denied`；同學打 `docker` 直接 `command not found`；另一台 VM 重開機後 daemon 沒起來，`docker run` 回 `Cannot connect to the Docker daemon`。三種錯誤、三個根因——權限、$PATH、服務。不理解 Linux 系統骨架就只能貼錯誤訊息碰運氣。
+W01 裝好 Docker 用 sudo 一路順暢，W03 三台 VM 也跑起來了。但某天登入 bastion 打 `docker ps` 回 `permission denied`；同學打 `docker` 直接 `command not found`；另一台 VM 重開機後 daemon 沒起來，`docker run` 回 `Cannot connect to the Docker daemon`。
+
+三種錯誤、三個根因——權限、$PATH、服務。不搞懂 Linux 系統骨架就只能貼錯誤訊息碰運氣，跟擲骰子沒兩樣。
 
 ---
 
@@ -28,9 +30,11 @@ W01 裝好 Docker 用 sudo 一路順暢，W03 三台 VM 也跑起來了。但某
 
 FHS（Filesystem Hierarchy Standard）是 Linux 社群的共同約定，規定每類檔案應該放在哪裡。有了這個約定，不管是哪個發行版，系統設定都在 `/etc/`、變動資料都在 `/var/`、執行檔都在 `/usr/bin/`——你換一台 Linux 機器也能立刻找到東西。
 
+把它想成圖書館的分類法：小說區、參考書區、期刊區各有位置，不會因為換了一間圖書館就全部打亂。
+
 #### Docker 在 FHS 中的位置
 
-Docker 嚴格遵循 FHS 約定。每個路徑都不是隨意選擇，而是由該路徑在 FHS 中的定義決定：
+Docker 乖乖照 FHS 的規矩來。每個路徑都不是隨便挑的，而是由該路徑在 FHS 中的定義決定：
 
 ```mermaid
 flowchart TB
@@ -68,7 +72,7 @@ flowchart TB
 | `/usr/bin/docker` | 使用者可執行檔 | Docker CLI 工具 | `/usr/bin/` 放的是安裝的應用程式執行檔 |
 | `/run/docker.sock` | 執行期暫存（PID/socket） | Docker daemon 的 Unix socket | 開機時由 daemon 建立，關機就消失 |
 
-理解 FHS 的好處：當你需要修改 Docker 設定，直覺就知道去 `/etc/docker/`；想清理映像佔用的空間，直覺知道去看 `/var/lib/docker/`；想確認 Docker CLI 安裝在哪裡，用 `which docker` 會指向 `/usr/bin/docker`。
+搞懂 FHS 的好處：要改 Docker 設定，直覺就知道去 `/etc/docker/`；想清理映像佔用的空間，直覺知道去看 `/var/lib/docker/`；想確認 Docker CLI 裝在哪，用 `which docker` 會指向 `/usr/bin/docker`。
 
 ### 二、權限模型與 Docker Socket
 
@@ -105,7 +109,7 @@ flowchart LR
 
 #### Docker Socket 的權限意義
 
-Docker daemon 監聽在 `/run/docker.sock`（Unix socket），CLI 透過這個 socket 發送請求。它的權限是 `srw-rw---- root:docker`：
+Docker daemon 監聽在 `/run/docker.sock`（Unix socket），CLI 靠這個 socket 發送請求。它的權限是 `srw-rw---- root:docker`：
 
 - **owner = root**：root 有讀寫權限。
 - **group = docker**：docker 群組成員有讀寫權限。
@@ -122,7 +126,7 @@ Docker daemon 監聽在 `/run/docker.sock`（Unix socket），CLI 透過這個 s
 | 安全性 | 每次操作有意識地提權 | **docker group 成員等同 root 權限** |
 | 適用場景 | 對安全要求高的環境 | 開發/教學環境 |
 
-為什麼 docker group ≈ root？因為 Docker daemon 以 root 權限運行，能存取 socket 就等於能指揮 daemon 做任何事——包括掛載 Host 的任意目錄、讀取任意檔案。在 Part B 會實際示範這一點。
+為什麼 docker group 大約等於 root？因為 Docker daemon 以 root 權限運行，能存取 socket 就等於能指揮 daemon 做任何事——包括掛載 Host 的任意目錄、讀取任意檔案。在 Part B 會實際示範這一點。
 
 ### 三、程序與服務管理
 
@@ -130,6 +134,8 @@ Docker daemon 監聽在 `/run/docker.sock`（Unix socket），CLI 透過這個 s
 
 - **Process（程序）**：正在記憶體中執行的程式實例，有 PID（程序 ID）和 UID（執行身份）。任何在跑的東西都是 process。
 - **Service（服務）**：由 systemd 管理的長期運行 daemon。Service 是一種特殊的 process——它在背景跑、開機自動啟動、掛掉可以自動重啟。
+
+簡單說：process 是「正在跑的程式」，service 是「有人幫它顧著的 process」。
 
 #### Docker 的 CLI vs Daemon
 
@@ -161,6 +167,8 @@ flowchart LR
 | daemon 停了會怎樣 | `docker --version` 正常，但 `docker ps` 失敗 | 所有容器操作都不行 |
 
 這就是為什麼 `docker --version` 正常不代表 Docker 能用——`--version` 只是 CLI 自己印出版本資訊，不需要跟 daemon 溝通。
+
+> **想一想**：`docker --version` 正常回傳版本，能不能代表 Docker 可以正常用？為什麼？
 
 #### systemd 管理 Docker daemon
 
@@ -221,7 +229,7 @@ flowchart TB
 
 ## 操作參考
 
-### Part A：FHS 探索與 Docker 目錄結構
+### Part A：摸清 Linux 目錄結構
 
 以下操作在 bastion 上執行。
 
@@ -300,7 +308,7 @@ file $(which docker)
 
 ---
 
-### Part B：權限模型與 Docker Socket
+### Part B：搞懂權限——誰能碰 Docker？
 
 #### 步驟 7：解讀 Docker Socket 權限
 
@@ -377,12 +385,12 @@ docker ps
 - 命令：
 
 ```bash
-# docker group 的使用者可以透過容器讀取 Host 的敏感檔案
+# docker group 的使用者可以靠容器讀取 Host 的敏感檔案
 docker run --rm -v /etc/shadow:/host-shadow:ro alpine cat /host-shadow
 ```
 
 - 預期輸出：看到 Host 的 `/etc/shadow` 內容（密碼雜湊）。
-- 這證明了 docker group ≈ root：能操作 Docker 就等於能存取 Host 上的任何東西。在生產環境中，不應該隨意把使用者加入 docker group。
+- 這證明了 docker group 大約等於 root：能操作 Docker 就等於能存取 Host 上的任何東西。在生產環境中，不應該隨意把使用者加入 docker group。
 
 #### 步驟 12：驗證 hello-world 不需 sudo
 
@@ -408,7 +416,7 @@ ls -la /usr/bin/docker
 
 ---
 
-### Part C：程序與服務管理
+### Part C：找到 Docker daemon 在哪、活著沒
 
 #### 步驟 14：觀察 Docker daemon process
 
@@ -506,7 +514,7 @@ systemctl list-units | grep docker
 
 ---
 
-### Part D：環境變數
+### Part D：$PATH 跟 command not found
 
 #### 步驟 21：查看身份變數
 
@@ -558,7 +566,7 @@ docker run --rm alpine env
 
 ---
 
-### Part E：故障注入
+### Part E：故意搞壞 Docker 再修回來
 
 #### 故障場景一：停止 Docker Daemon
 
@@ -682,6 +690,8 @@ systemctl status docker --no-pager | head -3
   - `sudo docker ps` 正常。
   - daemon 是 `active (running)`。
 
+> **想一想**：場景一跟場景二的錯誤訊息不一樣，`sudo docker ps` 的結果也不同。你能不能只靠這兩條線索，判斷問題出在 daemon 還是權限？
+
 #### 步驟 33：回復 socket 權限
 
 - 命令：
@@ -734,12 +744,17 @@ cd ~/virt-container-labs/w04
 
 ## Checkpoint 總覽
 
-1. **Checkpoint A** — FHS 探索完成：FHS 路徑表完成，`docker info` 輸出已記錄，能說明 `/var/lib/` 的用途。
-2. **Checkpoint B** — 權限模型理解：`docker run --rm hello-world` 不加 sudo 可執行；能解讀 socket 權限欄位；安全意涵（docker group ≈ root）已說明。
-3. **Checkpoint C** — 服務管理理解：`systemctl status docker` 顯示 active；`journalctl` 日誌已記錄；能區分 CLI vs daemon 的差異。
-4. **Checkpoint D** — 環境變數理解：`$PATH` 內容已記錄；`which docker` 指向正確路徑。
-5. **Checkpoint E1** — daemon 停止故障有三階段證據：故障前/中/後對照完整；`docker --version` 在故障中仍正常。
-6. **Checkpoint E2** — socket 權限故障有三階段證據：故障前/中/後對照完整；能解釋 `Cannot connect` vs `permission denied` 差異。
+> **Checkpoint A** — FHS 探索完成：FHS 路徑表完成，`docker info` 輸出已記錄，能說明 `/var/lib/` 的用途。
+
+> **Checkpoint B** — 權限模型理解：`docker run --rm hello-world` 不加 sudo 可執行；能解讀 socket 權限欄位；安全意涵（docker group 大約等於 root）已說明。
+
+> **Checkpoint C** — 服務管理理解：`systemctl status docker` 顯示 active；`journalctl` 日誌已記錄；能區分 CLI vs daemon 的差異。
+
+> **Checkpoint D** — 環境變數理解：`$PATH` 內容已記錄；`which docker` 指向正確路徑。
+
+> **Checkpoint E1** — daemon 停止故障有三階段證據：故障前/中/後對照完整；`docker --version` 在故障中仍正常。
+
+> **Checkpoint E2** — socket 權限故障有三階段證據：故障前/中/後對照完整；能解釋 `Cannot connect` vs `permission denied` 差異。
 
 ---
 
@@ -883,14 +898,14 @@ docker run --rm hello-world
 
 ### 排查方向
 
-沿用 W02–W03 的分層排錯模型，W04 新增「服務內部」診斷維度，形成四層檢查鏈：
+沿用 W02-W03 的分層排錯模型，W04 新增「服務內部」診斷維度，形成四層檢查鏈：
 
 1. **Binary 存在？** → `which docker`（`command not found` → 查 `$PATH` 或確認安裝）
 2. **Daemon 在跑？** → `systemctl status docker`（`inactive` → `start`；查 `journalctl` 找原因）
 3. **Socket 可存取？** → `ls -la /var/run/docker.sock`（`permission denied` → 查權限 / 群組）
 4. **請求成功？** → `docker ps`（讀錯誤訊息判斷卡在哪一層）
 
-這對應並延伸 W01 的四層驗證鏈（Repository → Engine → Daemon → hello-world），現在能從 OS 層面理解每一層的意義：
+這對應並延伸 W01 的四層驗證鏈（Repository → Engine → Daemon → hello-world），現在能從 OS 層面搞懂每一層的意義：
 
 | W01 四層驗證 | W04 系統層對應 |
 |---|---|
@@ -898,6 +913,10 @@ docker run --rm hello-world
 | ② Engine 安裝 | `/usr/bin/docker`（FHS: `/usr/bin/` 放執行檔）、`$PATH` 搜尋 |
 | ③ Daemon 狀態 | `systemctl status docker`（systemd 管理服務） |
 | ④ 端到端通路 | socket 權限 + daemon 回應 |
+
+---
+
+做到這裡，你已經把 Linux 系統骨架的四根柱子——檔案結構、權限、服務、環境變數——全部摸過一遍，而且親手把 Docker 搞壞兩次再修回來。下次碰到 `Cannot connect` 或 `permission denied`，你不會再對著螢幕發呆，而是知道該查 daemon 還是查權限。這就是「讀懂錯誤訊息」跟「貼錯誤訊息問 ChatGPT」的差距。
 
 ### 延伸閱讀
 

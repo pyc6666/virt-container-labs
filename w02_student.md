@@ -2,10 +2,10 @@
 
 ## 學習目標
 
-1. 說明虛擬網路交換器的運作原理，區分 NAT、Bridged、Host-only 三種模式的封包路徑與適用場景。
-2. 解釋為什麼雙 VM 需要雙網卡設計（NAT 負責外網、Host-only 負責內網），並能畫出對應的網路拓樸。
-3. 使用 `ip address`、`ip route`、`ping`、`ss`、`ssh` 按照 L2→L3→L4 的順序完成連線驗證與問題定位。
-4. 完成一次網路故障注入（停用介面）與回復，留下可重現的排錯證據。
+1. 搞懂 VMware 虛擬網路交換器怎麼運作，分得出 NAT、Bridged、Host-only 三種模式差在哪。
+2. 講得出來為什麼兩台 VM 要配雙網卡（NAT 負責外網、Host-only 負責內網），也能畫出對應的網路拓樸。
+3. 用 `ip address`、`ip route`、`ping`、`ss`、`ssh`，按 L2→L3→L4 排錯順序抓出連線問題在哪一層。
+4. 親手搞壞一次網路再修回來，留下可重現的排錯證據。
 
 ## 先備知識
 
@@ -15,15 +15,15 @@
 
 ## 問題情境
 
-兩台 VM 都「看起來正常」但就是互連失敗，通常不是服務壞掉，而是網路模式選錯。本週要建立可控內網：明確區分 NAT 與 Host-only，並用固定排錯順序讓連線問題可定位、可回復。
+兩台 VM 都「看起來正常」但就是互連失敗——你可能會問：明明兩台都開著，怎麼就是 ping 不到？通常不是服務壞掉，而是網路模式選錯。本週要建立可控內網：明確區分 NAT 與 Host-only，並用固定排錯順序讓連線問題可定位、可回復。
 
 ---
 
 ## 核心概念
 
-### 一、虛擬網路的本質
+### 一、虛擬網路到底是什麼
 
-VMware 在 Host 上建立**虛擬交換器（Virtual Switch）**，VM 的虛擬網卡（vNIC）連接到這些交換器，形成不同的網路拓樸。你可以把虛擬交換器想像成一台看不見的 switch——它不是實體設備，而是 VMware 在軟體層模擬出來的。
+VMware 在 Host 上建立**虛擬交換器（Virtual Switch）**，VM 的虛擬網卡（vNIC）連接到這些交換器，形成不同的網路拓樸。講白了就是一台看不見的 switch——它不是實體設備，而是 VMware 在軟體層模擬出來的。
 
 VMware 預設建立三個虛擬交換器：
 
@@ -95,7 +95,7 @@ VM 只能與 Host 及同網段的其他 VM 通訊，**無法上網**。因為不
 
 ### 三、為什麼需要雙網卡設計
 
-單靠一種模式無法同時滿足「上網」和「VM 互連」。只用 NAT，VM 之間的互連要繞過 NAT 引擎，不夠直接；只用 Host-only，VM 互通但無法上網裝套件。雙網卡設計（NAT + Host-only）讓 NAT 負責外網、Host-only 負責內網，職責分離。
+單靠一種模式無法同時滿足「上網」和「VM 互連」。想像一下：只用 NAT，VM 之間的互連要繞過 NAT 引擎，不夠直接；只用 Host-only，VM 互通但無法上網裝套件。雙網卡設計（NAT + Host-only）讓 NAT 負責外網、Host-only 負責內網，職責分離，各管各的。
 
 ```mermaid
 flowchart TB
@@ -125,6 +125,8 @@ flowchart TB
 
 > `dev-a` 有兩張網卡：NAT 讓它能上網裝套件，Host-only 讓它跟 `server-b` 互通。`server-b` 只需要 Host-only，因為它不需要直接上網。
 
+> **想一想**：如果 `dev-a` 只設一張 NAT 網卡，它能跟 `server-b` 互通嗎？為什麼？
+
 ### 四、L2 → L3 → L4 排錯分層模型
 
 網路排錯必須**由下往上逐層排除**，不要跳層：
@@ -141,7 +143,7 @@ flowchart TB
 
 ## 操作參考
 
-### Part A：雙 VM 建置與網卡配置
+### Part A：架兩台 VM、把網卡接好
 
 #### 步驟 1：準備兩台 VM
 
@@ -227,7 +229,7 @@ ping -c 4 <dev-a-host-only-ip>
 
 - 雙向都應成功。單向通 → 檢查對端防火牆（`sudo ufw status`）與介面狀態。雙向不通 → 回步驟 5 確認兩台在同一 Host-only 網段。
 
-#### 步驟 7：在 server-b 安裝並啟用 SSH 服務
+#### 步驟 7：在 server-b 裝好 SSH 服務並開起來
 
 有了 SSH，`dev-a` 就能遠端管理 `server-b`。
 
@@ -274,7 +276,7 @@ exit
   2. `ping` 通但 SSH 被拒（`Connection refused`） → L4 問題，回步驟 7-8 查 SSH 服務。
   3. `ping` 通且 SSH 回應但認證失敗 → 帳號密碼問題。
 
-#### 步驟 10：從 dev-a 用 SSH 在 server-b 遠端執行命令
+#### 步驟 10：從 dev-a 用 SSH 在 server-b 遠端跑命令
 
 SSH 也可以不進入互動 shell，直接在遠端跑命令。
 
@@ -318,14 +320,16 @@ ip route show
 
 ---
 
-### Part A Checkpoint
+> ✅ **Checkpoint A1** — 雙 VM 網卡配好了
+> - `dev-a` 有兩張網卡（NAT + Host-only），`server-b` 有一張（Host-only）
+> - 用 `ip address show` 確認
 
-1. **Checkpoint A1** — 雙 VM 網卡配置正確：`dev-a` 有兩張網卡（NAT + Host-only），`server-b` 有一張（Host-only），用 `ip address show` 確認。
-2. **Checkpoint A2** — 連線驗證完整：`dev-a` 可上網、雙向互 ping 成功、`dev-a` 可 SSH 到 `server-b`、SCP 傳檔成功、`server-b` 無法上網。
+> ✅ **Checkpoint A2** — 連線驗證跑完了
+> - `dev-a` 可上網、雙向互 ping 成功、`dev-a` 可 SSH 到 `server-b`、SCP 傳檔成功、`server-b` 無法上網
 
 ---
 
-### Part B：網路故障注入與排錯演練
+### Part B：故意搞壞網路再修回來
 
 #### 步驟 13：記錄故障前基線
 
@@ -407,7 +411,7 @@ ssh <server-b-user>@<server-b-host-only-ip> "hostname"
 
 #### 步驟 18：第二次故障注入 — 模擬 SSH 服務停止
 
-這次要製造「ping 通但 SSH 不通」的情境，感受 L3 正常但 L4 故障時的差異。
+這次要製造「ping 通但 SSH 不通」的情境，親身感受 L3 正常但 L4 故障時的差異。
 
 - 命令（在 `server-b` 上執行）：
 
@@ -439,6 +443,8 @@ ssh <server-b-user>@<server-b-host-only-ip> "hostname" 2>&1
 
 - `ping` 應成功，但 SSH 會出現 `Connection refused`。這就是分層排錯的價值所在。
 
+> **想一想**：如果你跳過 L2/L3 直接看 SSH 錯誤訊息，能不能分出「介面 DOWN 導致不通」跟「服務沒開導致被拒」？兩種的修法完全不同，所以排錯一定要從底層開始。
+
 #### 步驟 20：回復 SSH 服務
 
 - 命令（在 `server-b` 上執行）：
@@ -456,7 +462,7 @@ ssh <server-b-user>@<server-b-host-only-ip> "hostname"
 
 - SSH 服務回來後，連線應恢復正常。
 
-#### 步驟 21：繪製網路拓樸圖
+#### 步驟 21：畫出你的網路拓樸圖
 
 拓樸圖不只是作業附件——排錯時一張好的拓樸圖能讓你快速定位問題在哪一段。
 
@@ -477,14 +483,15 @@ mkdir -p ~/virt-container-labs/w02
 cd ~/virt-container-labs/w02
 ```
 
-- 操作：整理 `w02/README.md`，確保包含網路配置、連線驗證、兩次故障演練的三階段對照。
+- 操作：整理 `w02/README.md`，確認包含網路配置、連線驗證、兩次故障演練的三階段對照。
 
 ---
 
-### Part B Checkpoint
+> ✅ **Checkpoint B1** — 介面故障注入有三階段證據
+> - 有故障前基線、故障中（ping/SSH 失敗）、回復後（恢復正常）的命令輸出對照
 
-3. **Checkpoint B1** — 介面故障注入有三階段證據：有故障前基線、故障中（ping/SSH 失敗）、回復後（恢復正常）的命令輸出對照。
-4. **Checkpoint B2** — SSH 故障注入展示 L3/L4 分層差異：ping 通但 SSH 出現 `Connection refused`，且能說出排錯時為什麼要分層。
+> ✅ **Checkpoint B2** — SSH 故障注入展示 L3/L4 分層差異
+> - ping 通但 SSH 出現 `Connection refused`，且能說出排錯時為什麼要分層
 
 ---
 
@@ -603,6 +610,10 @@ ssh <user>@<peer-host-only-ip> "hostname"
 - 不要跳層：ping 不通就不要急著查 SSH，先從 L2 開始排。
 - 改一個變因就驗證一次，不要同時改兩個東西。
 - 拓樸圖是排錯利器：畫出來才能快速看出「問題不在服務而在路由」。
+
+---
+
+做完這週，你手上就有一個可控的雙 VM 內網環境，而且知道怎麼用 L2→L3→L4 系統化地抓問題。下週開始在這個基礎上跑服務的時候，網路不通你不會再瞎猜——直接照順序排就對了。
 
 ### 延伸閱讀
 

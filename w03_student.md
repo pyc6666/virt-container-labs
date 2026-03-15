@@ -2,11 +2,11 @@
 
 ## 學習目標
 
-1. 說明分層架構（Bastion → App → DB）的安全邏輯與「最小暴露原則」。
-2. 解釋 SSH 金鑰認證的運作原理，比較金鑰與密碼認證的安全性差異。
-3. 使用 `ufw` 設定防火牆規則，實作「預設拒絕 + 明確允許」的策略。
-4. 透過 SSH ProxyJump 完成跳板連線，驗證內網 VM 不需暴露到外網。
-5. 完成兩次故障注入（防火牆封鎖 + SSH 服務停止），對比 `timeout` 與 `refused` 的排錯差異，留下可重現的三階段證據。
+1. 搞懂 Bastion → App → DB 分層架構的安全邏輯，講得出「最小暴露」是什麼意思。
+2. 知道 SSH 金鑰認證怎麼運作，分得出它跟密碼差在哪。
+3. 用 `ufw` 親手設好「先封後開」的防火牆。
+4. 用 SSH ProxyJump 跳板連進內網 VM。
+5. 搞壞兩次（防火牆封鎖 + SSH 停掉），搞清楚 `timeout` 跟 `refused` 差在哪。
 
 ## 先備知識
 
@@ -16,7 +16,9 @@
 
 ## 問題情境
 
-W02 的雙 VM 環境中，所有連線都用密碼認證、沒有防火牆限制。這在教學環境勉強可用，但在真實場景中等於「每台機器都對外開門」。本週要把這個環境升級成分層管理架構：只有跳板機對外，內網機器藏在後面，並用金鑰認證取代密碼。
+W02 的雙 VM 環境裡，所有連線都用密碼認證、沒有防火牆。說白了就是「每台機器都對外開門，歡迎光臨」——教學環境勉強能用，放到真實場景就是在裸奔。
+
+本週要把這個環境升級成分層管理架構：只有跳板機對外，內網機器藏在後面，再用金鑰認證取代密碼。簡單說就是——**門只留一扇，鑰匙只發一把**。
 
 ---
 
@@ -47,15 +49,17 @@ flowchart LR
     style INET fill:#d1fae5,stroke:#333
 ```
 
-這個架構分成三層：Bastion（跳板機）是唯一對外開放 SSH 的入口，所有管理流量都必須先經過它；App（應用層）跑應用服務，只接受內網連線；DB（資料層）存放資料，只接受來自 App 的連線。
+這個架構分三層：Bastion（跳板機）是唯一對外開放 SSH 的入口，所有管理流量都要先經過它；App（應用層）跑應用服務，只接受內網連線；DB（資料層）存放資料，只接受來自 App 的連線。
 
-這就是最小暴露原則（Principle of Least Exposure）——每台機器只開放執行其角色所必須的埠和連線來源，不需要對外就不對外。每多開一個埠、每多一台直接對外的機器，攻擊者可嘗試的入口（攻擊面）就多一個。
+這就是**最小暴露原則**（Principle of Least Exposure）——每台機器只開放它角色需要的埠和連線來源，不需要對外就不對外。每多開一個埠、每多一台直接對外的機器，攻擊者可以嘗試的入口（攻擊面）就多一個。想像成你家的門：門越多，你要裝鎖的地方就越多，漏裝一把就完蛋。
 
-如果 App 和 DB 都直接開放 SSH 到外網，任何人都可以嘗試暴力破解。把入口集中到 Bastion 一台，只需要顧好一個點。即使 Bastion 被攻破，App 和 DB 的防火牆還能擋住直接存取，多了一道防線。
+如果 App 和 DB 都直接對外開 SSH，任何人都可以暴力破解。把入口集中到 Bastion 一台，你只需要顧好一個點。即使 Bastion 被攻破，App 和 DB 的防火牆還能擋住直接存取，多了一道防線。
+
+> **想一想**：如果 bastion 被攻破了，攻擊者能直接連到 db 嗎？db 的防火牆還擋得住嗎？
 
 #### 實作拓樸圖
 
-理解了分層邏輯之後，來看本週要建立的完整架構——包含每台 VM 的 IP 配置、防火牆規則和 SSH 連線路徑：
+搞懂分層邏輯之後，來看本週要蓋的完整架構——包含每台 VM 的 IP 配置、防火牆規則和 SSH 連線路徑：
 
 ```mermaid
 flowchart TB
@@ -97,13 +101,13 @@ flowchart TB
     style INET fill:#f3f4f6,stroke:#333
 ```
 
-> 只有 bastion 有 NAT 網卡可上網。app 和 db 只有 Host-only，必須透過 bastion 跳板才能從外部存取。防火牆規則越靠內層越嚴格。
+> 只有 bastion 有 NAT 網卡可上網。app 和 db 只有 Host-only，必須靠 bastion 跳板才能從外部存取。防火牆規則越靠內層越嚴格。
 
 ### 二、SSH 金鑰認證 vs 密碼認證
 
 #### 密碼認證的風險
 
-密碼可以被暴力破解（brute-force），攻擊者自動嘗試數百萬組密碼就可能中獎。密碼也可能被側錄（keylogger）或社交工程取得，而且很多人會在多處重複使用同一組密碼——一處洩漏就全部失守。
+密碼可以被暴力破解（brute-force），攻擊者自動跑數百萬組密碼就可能中獎。密碼也可能被側錄（keylogger）或社交工程騙走，而且很多人會在多處重複用同一組密碼——一處洩漏就全部失守。
 
 #### 金鑰認證的原理
 
@@ -120,7 +124,7 @@ sequenceDiagram
     S->>C: 4. 驗證通過，允許登入
 ```
 
-認證過程中不傳輸密碼，也不傳輸私鑰。即使網路被竊聽，攻擊者也拿不到可以登入的憑證。
+認證過程中不傳輸密碼，也不傳輸私鑰。即使網路被竊聽，攻擊者也拿不到可以登入的憑證。換句話說，**就算有人在旁邊偷看，也只看到一堆加密過的垃圾**。
 
 #### 金鑰認證的基本流程
 
@@ -132,9 +136,9 @@ sequenceDiagram
 
 Ubuntu 預設的防火牆工具，底層是 iptables/nftables，但提供簡單的命令介面。
 
-ufw 採用「先封後開」的邏輯：先用 `default deny incoming` 擋掉所有進入的連線，再逐條加上你確實需要的埠（例如 `allow 22/tcp`），沒有明確允許的全部被擋。
+ufw 的核心邏輯是「先封後開」：先用 `default deny incoming` 擋掉所有進來的連線，再逐條加上你確實需要的埠（例如 `allow 22/tcp`），沒有明確允許的全部被擋。
 
-這比「先開後封」安全得多。先開後封容易漏封某個有漏洞的埠；先封後開的情況下，忘記開的最多是服務不通（你馬上會發現），不會是被偷偷攻擊。
+這比「先開後封」安全得多。先開後封容易漏封某個有漏洞的埠；先封後開的情況下，忘記開的最多是服務不通（你馬上會發現），不會是被偷偷攻擊。**寧可多封一個自己踩到，也不要少封一個被別人鑽進來。**
 
 #### 防火牆規則的範圍控制
 
@@ -142,7 +146,7 @@ ufw 採用「先封後開」的邏輯：先用 `default deny incoming` 擋掉所
 
 ### 四、SSH ProxyJump（跳板連線）
 
-SSH ProxyJump 讓你透過 Bastion 跳板連接內網 VM，不需要把內網 VM 暴露到外網。
+SSH ProxyJump 讓你靠 Bastion 跳板連接內網 VM，不需要把內網 VM 暴露到外網。
 
 ```mermaid
 flowchart LR
@@ -160,13 +164,13 @@ flowchart LR
 
 指令格式：`ssh -J bastion-user@bastion-ip target-user@target-ip`
 
-這條指令做了兩件事：先 SSH 到 Bastion，再透過 Bastion 建立第二條 SSH 到內網目標。你不需要手動跳——SSH 自動幫你轉，終端機直接就是內網 VM 的 shell。
+這條指令做了兩件事：先 SSH 到 Bastion，再靠 Bastion 建立第二條 SSH 到內網目標。你不需要手動跳——SSH 自動幫你轉，終端機直接就是內網 VM 的 shell。
 
 ---
 
 ## 操作參考
 
-### Part A：三節點架構建置
+### Part A：把三台 VM 架起來
 
 #### 步驟 1：準備三台 VM
 
@@ -191,7 +195,7 @@ hostnamectl
   - `bastion`：NIC 1 = NAT、NIC 2 = Host-only。
   - `app`：NIC 1 = Host-only。
   - `db`：NIC 1 = Host-only。
-- 驗證（三台都執行）：
+- 驗證（三台都跑）：
 
 ```bash
 ip address show
@@ -219,7 +223,7 @@ ping -c 2 <db-host-only-ip>       # 在 app 上
 
 #### 步驟 4：安裝並啟用 SSH 服務
 
-- 命令（三台都執行）：
+- 命令（三台都跑）：
 
 ```bash
 sudo apt update  # bastion 可直接跑；app/db 臨時加 NAT 網卡或用 SCP 傳套件
@@ -233,7 +237,7 @@ ss -tlnp | grep :22
 
 #### 步驟 5：從 bastion SSH 到 app 和 db
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 ssh <app-user>@<app-host-only-ip> "hostname && uptime"
@@ -242,13 +246,15 @@ ssh <db-user>@<db-host-only-ip> "hostname && uptime"
 
 - 預期輸出：分別回傳 `app` 和 `db` 的 hostname。
 
+> **Checkpoint A** — 三節點網路架構就緒：bastion 可上網，三台 Host-only 互 ping，bastion 可 SSH 到 app 和 db。
+
 ---
 
-### Part B：SSH 金鑰認證
+### Part B：設好金鑰，丟掉密碼
 
 #### 步驟 6：在 bastion 上產生 SSH 金鑰對
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 ssh-keygen -t ed25519 -C "bastion-key"
@@ -267,7 +273,7 @@ cat ~/.ssh/id_ed25519.pub
 
 #### 步驟 7：部署公鑰到 app 和 db
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 ssh-copy-id <app-user>@<app-host-only-ip>
@@ -298,7 +304,7 @@ cat ~/.ssh/authorized_keys
 #### 步驟 9：（選做）停用密碼認證
 
 - 這步把密碼登入關掉，之後只能用金鑰認證，暴力破解就沒用了。
-- 命令（在 app 上執行）：
+- 命令（在 app 上跑）：
 
 ```bash
 sudo cp /etc/ssh/sshd_config /etc/ssh/sshd_config.bak  # 先備份
@@ -322,15 +328,17 @@ ssh -o PubkeyAuthentication=no <app-user>@<app-host-only-ip> 2>&1
 ```
 
 - 預期輸出：金鑰登入成功，密碼登入出現 `Permission denied (publickey)`。
-- 注意：做這步之前確保金鑰認證可用，否則會把自己鎖在外面。如果真的鎖住了，可以從 VMware 的 console 直接進 VM 修復。
+- 注意：做這步之前確認金鑰認證可用，否則會把自己鎖在外面。如果真的鎖住了，可以從 VMware 的 console 直接進 VM 修復。
+
+> **Checkpoint B** — 金鑰認證可用：bastion 免密碼 SSH 到 app 和 db。選做步驟 9 完成時，`ssh -o PubkeyAuthentication=no` 應出現 `Permission denied (publickey)`。
 
 ---
 
-### Part C：防火牆設定
+### Part C：用 ufw 把門鎖好
 
 #### 步驟 10：在 app 上啟用 ufw 並設定規則
 
-- 命令（在 app 上執行）：
+- 命令（在 app 上跑）：
 
 ```bash
 # 查看目前防火牆狀態
@@ -351,13 +359,13 @@ sudo ufw status verbose
 ```
 
 - 預期輸出：`Status: active`，規則顯示只有 `192.168.56.0/24` 的 port 22 被允許。
-- 注意：`ufw enable` 會提示可能中斷現有 SSH 連線——因為我們已經設了 allow 規則，所以不會斷。
+- 注意：`ufw enable` 會提示可能中斷現有 SSH 連線——因為你已經設了 allow 規則，所以不會斷。
 
 #### 步驟 11：在 db 上設定更嚴格的規則
 
 db 只接受來自 app 和 bastion 的 SSH 連線。
 
-- 命令（在 db 上執行）：
+- 命令（在 db 上跑）：
 
 ```bash
 sudo ufw default deny incoming
@@ -375,7 +383,7 @@ sudo ufw status verbose
 
 #### 步驟 12：驗證防火牆規則生效
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 # 應該成功
@@ -383,7 +391,7 @@ ssh <app-user>@<app-host-only-ip> "echo 'bastion -> app OK'"
 ssh <db-user>@<db-host-only-ip> "echo 'bastion -> db OK'"
 ```
 
-- 命令（在 app 上執行）：
+- 命令（在 app 上跑）：
 
 ```bash
 # 應該成功
@@ -392,9 +400,9 @@ ssh <db-user>@<db-host-only-ip> "echo 'app -> db OK'"
 
 #### 步驟 13：驗證防火牆確實在擋東西
 
-這步要確認防火牆不只是「開著好看」，而是真的在過濾流量。
+這步要確認防火牆不只是「開著好看」，而是真的在過濾流量。你得親眼看到它擋下東西才算數。
 
-- 命令（在 app 上執行）：
+- 命令（在 app 上跑）：
 
 ```bash
 # 臨時跑一個簡單的 HTTP server
@@ -402,7 +410,7 @@ python3 -m http.server 8080 &
 ss -tlnp | grep :8080
 ```
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 # 嘗試連 app 的 8080 — 應該被防火牆擋住
@@ -416,32 +424,34 @@ curl -m 5 http://<app-host-only-ip>:8080 2>&1
 kill %1   # 停止背景 HTTP server
 ```
 
+> **Checkpoint C** — 防火牆規則生效：SSH 可通、非允許埠被擋（步驟 13 的 curl 8080 失敗）。
+
 ---
 
-### Part D：SSH ProxyJump 跳板連線
+### Part D：跳板連線——不開門也能進內網
 
-#### 步驟 14：從 Host 透過 bastion 跳板連到 app
+#### 步驟 14：從 Host 靠 bastion 跳板連到 app
 
 - 這步驗證「Host → bastion → app」的跳板路徑。你的終端機在 Host OS 上，SSH 會先連到 bastion，再自動轉到 app。
-- 命令（在 **Host OS 的終端機**上執行，不是在 bastion 內）：
+- 命令（在 **Host OS 的終端機**上跑，不是在 bastion 內）：
 
 ```bash
 # 一跳：從 Host 連到 bastion
 ssh <bastion-user>@<bastion-host-only-ip> "hostname"
 
-# 兩跳：從 Host 透過 bastion 跳到 app（-J 指定跳板）
+# 兩跳：從 Host 靠 bastion 跳到 app（-J 指定跳板）
 ssh -J <bastion-user>@<bastion-host-only-ip> <app-user>@<app-host-only-ip> "hostname"
 ```
 
 - 預期輸出：第一條回傳 `bastion`，第二條回傳 `app`。
 - `-J` 後面接跳板機，最後才是你真正要連的目標。你不需要手動跳——終端機直接就是 app 的 shell。
 
-> 如果你的 Host OS 沒有 SSH client（例如舊版 Windows），可以在 bastion 上執行這一步，改為 `ssh -J` 從 bastion 透過 app 跳到 db。
+> 如果你的 Host OS 沒有 SSH client（例如舊版 Windows），可以在 bastion 上做這一步，改為 `ssh -J` 從 bastion 靠 app 跳到 db。
 
 #### 步驟 15：設定 SSH config 簡化跳板連線
 
 - 把跳板設定寫進 config，之後 `ssh app` 就會自動走跳板路徑。
-- 命令（在 **Host OS** 上執行，或在 bastion 上執行——取決於你常用哪台當起點）：
+- 命令（在 **Host OS** 上跑，或在 bastion 上跑——取決於你常用哪台當起點）：
 
 ```bash
 mkdir -p ~/.ssh
@@ -479,7 +489,7 @@ ssh db "hostname"
 
 - 預期輸出：直接用 `ssh app` 就能連到，不用每次打完整的 `-J` 參數。
 
-#### 步驟 16：用 SCP 透過跳板傳檔
+#### 步驟 16：用 SCP 靠跳板傳檔
 
 - 命令：
 
@@ -490,7 +500,7 @@ echo "Test file via ProxyJump" > /tmp/proxy-test.txt
 scp /tmp/proxy-test.txt app:/tmp/
 ssh app "cat /tmp/proxy-test.txt"
 
-# 傳到 db（透過 bastion 跳板）
+# 傳到 db（靠 bastion 跳板）
 scp /tmp/proxy-test.txt db:/tmp/
 ssh db "cat /tmp/proxy-test.txt"
 ```
@@ -520,15 +530,17 @@ ssh app "hostname"
   - `ProxyJump` 指定的 Host 別名必須在 config 中有對應定義。
   - 如果目標機的防火牆只允許特定來源 IP，確認跳板機的 IP 在允許清單中。
 
+> **Checkpoint D** — ProxyJump 跳板連線可用：從 Host（或 bastion）靠跳板 SSH 到 app 和 db 成功，SCP 傳檔成功。
+
 ---
 
-### Part E：防火牆故障注入與排錯
+### Part E：故意搞壞防火牆跟 SSH
 
 #### 故障場景一：防火牆全封鎖（Connection timeout）
 
 #### 步驟 18：記錄故障前基線
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 echo "=== 故障前基線 ==="
@@ -540,9 +552,9 @@ ssh db "echo 'bastion -> db OK'"
 
 #### 步驟 19：故障注入 — 在 app 上重設防火牆為全部拒絕
 
-> **⚠️ 必須在 VMware console 操作：** 這個步驟會封鎖所有網路連線（包括 SSH），所以你無法透過 SSH 執行。請直接在 VMware 視窗中操作 app 的 console。
+> **⚠️ 必須在 VMware console 操作：** 這個步驟會封鎖所有網路連線（包括 SSH），所以你無法靠 SSH 做。請直接在 VMware 視窗中操作 app 的 console。
 
-- 命令（在 app 的 **VMware console** 上執行）：
+- 命令（在 app 的 **VMware console** 上跑）：
 
 ```bash
 sudo ufw reset
@@ -556,7 +568,7 @@ sudo ufw status verbose
 
 #### 步驟 20：從 bastion 觀測故障
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 echo "=== 故障中（防火牆全封鎖）==="
@@ -570,7 +582,7 @@ ssh -o ConnectTimeout=5 <app-user>@<app-host-only-ip> "hostname" 2>&1
 
 > **⚠️ 必須在 VMware console 操作：** 因為 SSH 仍然被封鎖，你只能在 VMware console 中回復。
 
-- 命令（在 app 的 **VMware console** 上執行）：
+- 命令（在 app 的 **VMware console** 上跑）：
 
 ```bash
 sudo ufw reset
@@ -583,7 +595,7 @@ sudo ufw status verbose
 
 #### 步驟 22：回復後驗證
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 echo "=== 回復後 ==="
@@ -593,6 +605,8 @@ ssh <db-user>@<db-host-only-ip> "hostname"
 
 - 預期輸出：與步驟 18 的基線一致。
 
+> **Checkpoint E1** — 防火牆故障注入有三階段證據：故障前/中/後對照完整，故障中出現 `Connection timed out`。
+
 ---
 
 #### 故障場景二：SSH 服務停止（Connection refused）
@@ -601,7 +615,7 @@ ssh <db-user>@<db-host-only-ip> "hostname"
 
 這次防火牆規則不動，只把 SSH 服務停掉，看看錯誤訊息跟場景一有什麼不同。
 
-- 命令（在 app 上執行，趁 SSH 還通時操作）：
+- 命令（在 app 上跑，趁 SSH 還通時操作）：
 
 ```bash
 # 記錄故障前狀態
@@ -620,7 +634,7 @@ ss -tlnp | grep :22
 
 #### 步驟 24：從 bastion 觀測故障並對比兩種錯誤
 
-- 命令（在 bastion 上執行）：
+- 命令（在 bastion 上跑）：
 
 ```bash
 echo "=== 故障中（SSH 服務停止）==="
@@ -640,9 +654,11 @@ ssh -o ConnectTimeout=5 <app-user>@<app-host-only-ip> "hostname" 2>&1
 | `Connection timed out` | 封包被防火牆靜默丟棄（drop） | L3.5（防火牆問題）→ 查 `ufw status` |
 | `Connection refused` | 目標埠沒有服務在監聽（RST 回應） | L4（服務問題）→ 查 `ss -tlnp` |
 
+> **想一想**：如果你同時看到 ping 不通又 SSH `Connection refused`，問題比較可能出在哪一層？會不會是兩個問題同時發生？
+
 #### 步驟 25：回復 SSH 服務
 
-- 命令（在 app 上執行——因為 SSH 被停了，需要從 **VMware console** 操作）：
+- 命令（在 app 上跑——因為 SSH 被停了，需要從 **VMware console** 操作）：
 
 ```bash
 sudo systemctl start ssh
@@ -657,6 +673,8 @@ ssh <app-user>@<app-host-only-ip> "hostname"
 ```
 
 - 預期輸出：SSH 服務回來，連線成功。
+
+> **Checkpoint E2** — SSH 故障注入展示 timeout vs refused 差異：故障中 ping 成功但 SSH 出現 `Connection refused`，能說出兩者指向不同排錯方向。
 
 #### 步驟 26：繪製網路拓樸圖
 
@@ -681,12 +699,17 @@ cd ~/virt-container-labs/w03
 
 ## Checkpoint 總覽
 
-1. Checkpoint A — 三節點網路架構就緒：bastion 可上網，三台 Host-only 互 ping，bastion 可 SSH 到 app 和 db。
-2. Checkpoint B — 金鑰認證可用：bastion 免密碼 SSH 到 app 和 db。選做步驟 9 完成時，`ssh -o PubkeyAuthentication=no` 應出現 `Permission denied (publickey)`。
-3. Checkpoint C — 防火牆規則生效：SSH 可通、非允許埠被擋（步驟 13 的 curl 8080 失敗）。
-4. Checkpoint D — ProxyJump 跳板連線可用：從 Host（或 bastion）透過跳板 SSH 到 app 和 db 成功，SCP 傳檔成功。
-5. Checkpoint E1 — 防火牆故障注入有三階段證據：故障前/中/後對照完整，故障中出現 `Connection timed out`。
-6. Checkpoint E2 — SSH 故障注入展示 timeout vs refused 差異：故障中 ping 成功但 SSH 出現 `Connection refused`，能說出兩者指向不同排錯方向。
+> **Checkpoint A** — 三節點網路架構就緒：bastion 可上網，三台 Host-only 互 ping，bastion 可 SSH 到 app 和 db。
+
+> **Checkpoint B** — 金鑰認證可用：bastion 免密碼 SSH 到 app 和 db。選做步驟 9 完成時，`ssh -o PubkeyAuthentication=no` 應出現 `Permission denied (publickey)`。
+
+> **Checkpoint C** — 防火牆規則生效：SSH 可通、非允許埠被擋（步驟 13 的 curl 8080 失敗）。
+
+> **Checkpoint D** — ProxyJump 跳板連線可用：從 Host（或 bastion）靠跳板 SSH 到 app 和 db 成功，SCP 傳檔成功。
+
+> **Checkpoint E1** — 防火牆故障注入有三階段證據：故障前/中/後對照完整，故障中出現 `Connection timed out`。
+
+> **Checkpoint E2** — SSH 故障注入展示 timeout vs refused 差異：故障中 ping 成功但 SSH 出現 `Connection refused`，能說出兩者指向不同排錯方向。
 
 ---
 
@@ -798,7 +821,7 @@ ssh -J bastion <app-user>@<app-ip> "hostname"
 - 錯誤：金鑰認證設好了但還是問密碼。
   診斷：檢查 `~/.ssh/authorized_keys` 的權限（應為 `600`）和 `~/.ssh` 目錄權限（應為 `700`）。另外確認 `/etc/ssh/sshd_config` 中 `PubkeyAuthentication` 不是 `no`。
 - 錯誤：ProxyJump 失敗，跳板機可連但目標機不行。
-  診斷：確認 bastion 可以 SSH 到目標機（不透過 ProxyJump 直連測試）。如果直連可以但 ProxyJump 不行，檢查 `~/.ssh/config` 的設定格式。
+  診斷：確認 bastion 可以 SSH 到目標機（不靠 ProxyJump 直連測試）。如果直連可以但 ProxyJump 不行，檢查 `~/.ssh/config` 的設定格式。
 - 錯誤：三台 VM 的 Host-only IP 不在同一網段。
   診斷：確認三台都連到同一個 VMnet（VMnet1），在 VMware Virtual Network Editor 中檢查。
 - 錯誤：app/db 沒網路無法裝 openssh-server。
@@ -817,6 +840,14 @@ ssh -J bastion <app-user>@<app-ip> "hostname"
   - `Connection refused` → 服務沒跑或埠錯 → L4 問題。
   - `Connection timeout` → 封包被丟棄（drop）→ 防火牆問題。
 - 金鑰認證問題三查：權限（`~/.ssh` 700、`authorized_keys` 600）、設定（`sshd_config`）、金鑰匹配（公鑰內容是否正確）。
+
+---
+
+## 做完這週，你學到什麼？
+
+這週你從「所有機器門戶大開」走到「分層管控、只留一個入口」。你親手設了金鑰認證（不再靠密碼這種脆弱的東西）、用 ufw 鎖好防火牆（先封後開，忘記開頂多服務不通，不會被偷打）、靠 ProxyJump 從外面跳進內網。最後你還故意搞壞了兩次，親眼看到 `timeout` 跟 `refused` 長得不一樣、指向不同的問題。
+
+這套「最小暴露 + 分層防禦」的思路不只是這門課的作業——以後不管你管幾台機器、上不上雲，安全架構的核心邏輯都是這一套。
 
 ---
 
