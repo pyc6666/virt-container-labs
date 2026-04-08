@@ -14,6 +14,8 @@ Containerization and Virtualization Technologies
 | W02 | VMware 網路模式與雙 VM 排錯 | NAT / Bridged / Host-only、網路診斷 |
 | W03 | 多 VM 架構：分層管理、跳板機與最小暴露設計 | SSH 金鑰認證、ufw 防火牆、ProxyJump |
 | W04 | Linux 系統基礎：檔案系統、權限、程序與服務管理 | FHS、chmod/chown、systemctl/journalctl、$PATH |
+| W05 | 容器底層原理：Namespace、Cgroups、Union FS | /proc/\<pid\>/ns、cgroup v2、overlay2、OCI |
+| W06 | Docker Image 與 Dockerfile | Dockerfile 指令、layer 快取、multi-stage build |
 
 ## 環境需求
 
