@@ -16,6 +16,7 @@ Containerization and Virtualization Technologies
 | W04 | Linux 系統基礎：檔案系統、權限、程序與服務管理 | FHS、chmod/chown、systemctl/journalctl、$PATH |
 | W05 | 容器底層原理：Namespace、Cgroups、Union FS | /proc/\<pid\>/ns、cgroup v2、overlay2、OCI |
 | W06 | Docker Image 與 Dockerfile | Dockerfile 指令、layer 快取、multi-stage build |
+| 期中 | [期中實作：雙 VM 分層部署與故障排查](midterm_student.md) | 整合 W01–W06，約 2 小時 |
 
 ## 環境需求
 
