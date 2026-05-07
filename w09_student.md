@@ -128,7 +128,7 @@ flowchart LR
 
 #### kube-proxy：把不存在的 IP 變成真實流量
 
-Service 的 `ClusterIP` 是個 **虛擬 IP**——它**不對應任何網卡**，你 `ip addr` 找不到它。但你 `curl <ClusterIP>:80` 就是會到後端 Pod。這個魔法是 `kube-proxy` 寫的 iptables 規則做的：
+Service 的 `ClusterIP` 是個 **虛擬 IP**——它**不對應任何網卡**，你 `ip addr` 找不到它。但你 `curl <ClusterIP>:80` 就是會到後端 Pod。這背後是 `kube-proxy` 寫的 iptables 規則做的：
 
 ```mermaid
 flowchart TB

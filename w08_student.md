@@ -37,7 +37,7 @@ W07 的 yaml「能跑」。但「能跑」跟「能在線上撐住」之間，�
 
 ### 一、Healthcheck 的兩個層次
 
-容器「在跑」不等於「能用」。一個 process 還活著、port 還開著，但裡面已經死循環、db 連線池滿了、記憶體爆了——這時候你要的不是 `process running`，是 `service healthy`。
+容器「在跑」不等於「能用」。一個 process 還活著、port 還開著，但裡面已經陷入無窮迴圈、db 連線池滿了、記憶體爆了——這時候你要的不是 `process running`，是 `service healthy`。
 
 Docker 提供兩個地方寫 healthcheck：
 
@@ -434,7 +434,7 @@ cat /sys/fs/cgroup$CGPATH/pids.max
 ```
 
 - 預期觀察：印出 `134217728`（=128 MiB）、`50000 100000`（每 100ms 給 50ms = 50%）、`200`。
-- 跟 `compose.yaml` 寫的數字對得上——**Compose 不是魔法，它就是把這幾個值寫進 cgroup**。
+- 跟 `compose.yaml` 寫的數字對得上——**Compose 沒有什麼神秘的，它就是把這幾個值寫進 cgroup**。
 
 > **Checkpoint C** — 親手做出 OOM kill 與 CPU throttle 兩個觀察，並從 `/sys/fs/cgroup` 看到對應的設定值。
 

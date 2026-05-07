@@ -24,9 +24,9 @@ W01 到 W04 你一路用 `docker run` 起了一堆容器，nginx 跑得順、alp
 - 你拉了 `ubuntu:24.04`、`nginx`、`python:3.12`，磁碟卻沒爆掉——它們明明都帶一份 Ubuntu，共享是怎麼發生的？
 - 為什麼 Docker、Podman、containerd 的映像可以互吃？誰訂了規則？
 
-不搞懂這些，你只是會「用 Docker」而已，跟「懂容器」還差一層 kernel。這週就把蓋子掀開，讓容器在你眼前變成三個你已經認識的 Linux 機制的組合拳。
+不理解這些，你只是會「用 Docker」而已，跟「懂容器」還差一層 kernel。這週把容器這層抽象拆開來看，讓它在你眼前還原成三個你已經認識的 Linux 機制的組合。
 
-> 容器不是魔法，是 kernel 三招組合技——把你看到的東西限住（namespace）、把你能用的東西限住（cgroups）、把檔案層層疊起來（union fs）。
+> 容器不是黑箱，是 kernel 三個機制疊起來的結果——把你看到的東西限住（namespace）、把你能用的東西限住（cgroups）、把檔案層層疊起來（union fs）。
 
 ---
 
@@ -271,7 +271,7 @@ flowchart LR
 - `dockerd` 包一層使用者友善的 API（build、網路、volume），底下其實是 containerd + runc。
 - 因為都符合 OCI 規範，Podman / CRI-O（K8s 用的）可以直接吃 Docker build 出來的映像——這就是標準的威力。
 
-> 講白了：你每次 `docker run`，中間要穿過四到五層軟體，最後那一下真正把 process 塞進 namespace 的動作是 runc 幹的。
+> 講白了：你每次 `docker run`，中間要穿過四到五層軟體，最後那一下真正把 process 塞進 namespace 的動作是 runc 執行的。
 
 ---
 
@@ -889,7 +889,7 @@ docker rm -f chk
 
 ---
 
-做到這裡，你已經把「容器」這個概念從一個 Docker CLI 的動詞，拆成了三個你能親手量測的 Linux kernel 機制：namespace 管視角、cgroup 管配額、overlay2 管檔案層。再加上 OCI 這套讓 Docker / Podman / K8s 都能共通的規範，容器從今天起對你來說不是黑盒子，而是**可以用 `ls /proc`、`cat /sys/fs/cgroup`、`docker diff` 逐行驗證的三招組合技**。
+做到這裡，你已經把「容器」這個概念從一個 Docker CLI 的動詞，拆成了三個你能親手量測的 Linux kernel 機制：namespace 管視角、cgroup 管配額、overlay2 管檔案層。再加上 OCI 這套讓 Docker / Podman / K8s 都能共通的規範，容器從今天起對你來說不是黑盒子，而是**可以用 `ls /proc`、`cat /sys/fs/cgroup`、`docker diff` 逐行驗證的三個 kernel 機制的組合**。
 
 下週 W06 會把鏡頭拉回到「怎麼把自己的應用打包成 image」——有了這週對 layer 與 overlay2 的理解，你看 Dockerfile 的 `RUN`、`COPY`、快取行為才會真的通。
 

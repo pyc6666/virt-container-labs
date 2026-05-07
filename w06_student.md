@@ -7,7 +7,7 @@
 3. 分得清 `CMD` 跟 `ENTRYPOINT`、`COPY` 跟 `ADD`、shell form 跟 exec form，各自什麼時候用。
 4. 利用 layer 快取原理重排 Dockerfile，把 rebuild 時間從幾十秒砍到幾秒。
 5. 親手做一次 multi-stage build，比較單階段與多階段的映像大小，講得出差了那麼多的原因。
-6. 搞懂 `.dockerignore` 在幹嘛，碰到奇怪的 build context 不會一頭霧水。
+6. 理解 `.dockerignore` 的用途，碰到非預期的 build context 行為時知道從何看起。
 
 ## 先備知識
 
@@ -85,7 +85,7 @@ Dockerfile 是一份照順序執行的 build 腳本，每條指令會產生一�
 
 > **講白了**：`FROM/RUN/COPY/ADD` 會造出新 layer、佔硬碟空間；`WORKDIR/ENV/ARG/EXPOSE/USER/CMD/ENTRYPOINT` 只改 metadata、不產生新的檔案層（但仍會佔一個 metadata-only 的層）。
 
-### 三、CMD vs ENTRYPOINT：最容易搞混的一對
+### 三、CMD vs ENTRYPOINT：最容易混淆的一對
 
 這是 Dockerfile 最多人踩雷的地方。兩者都能指定「容器啟動時跑什麼」，但行為差很多。重點記兩件事：
 
@@ -311,7 +311,7 @@ if __name__ == "__main__":
 flask==3.0.3
 ```
 
-#### 步驟 7：寫第一版 Dockerfile（故意寫爛的那種）
+#### 步驟 7：寫第一版 Dockerfile（示範常見的反模式）
 
 - 建立 `Dockerfile.v1`：
 
@@ -867,4 +867,4 @@ docker stop myapp-final && docker rm myapp-final
 
 ---
 
-做完這週，你應該能一眼看穿一份 Dockerfile 的好壞：看順序就知道它 rebuild 會不會爆炸、看 `FROM` 就知道最終 image 會多肥、看 `CMD`/`ENTRYPOINT` 就知道 `docker run` 接參數會發生什麼事。Dockerfile 不是咒語，它是有規則的——規則搞懂了，你寫出來的 image 自然又小、又快、又穩。
+做完這週，你應該能一眼看穿一份 Dockerfile 的好壞：看順序就知道它 rebuild 會不會爆炸、看 `FROM` 就知道最終 image 會多大、看 `CMD`/`ENTRYPOINT` 就知道 `docker run` 接參數會發生什麼事。Dockerfile 不是黑箱，它是有規則的——把規則理解透，你寫出來的 image 自然又小、又快、又穩。

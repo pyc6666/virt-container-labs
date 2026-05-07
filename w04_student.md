@@ -2,11 +2,11 @@
 
 ## 學習目標
 
-1. 搞懂 Linux 目錄結構（FHS），講得出 Docker 的設定檔、資料、執行檔各放在哪、為什麼。
-2. 看懂 Linux 的權限欄位（owner/group/others × rwx），搞清楚 Docker socket 的權限設計，說明 `usermod -aG docker $USER` 的安全意涵。
+1. 理解 Linux 目錄結構（FHS），講得出 Docker 的設定檔、資料、執行檔各放在哪、為什麼。
+2. 看懂 Linux 的權限欄位（owner/group/others × rwx），釐清 Docker socket 的權限設計，說明 `usermod -aG docker $USER` 的安全意涵。
 3. 分得出 process 跟 service 的差別，用 `ps`/`systemctl`/`journalctl` 抓 Docker daemon 狀態。
 4. 知道 `$PATH` 怎麼運作，碰到 `command not found` 不會慌。
-5. 親手搞壞兩次（停 daemon + 改 socket 權限），搞清楚 `Cannot connect` 跟 `permission denied` 差在哪。
+5. 親手破壞兩次（停 daemon + 改 socket 權限），釐清 `Cannot connect` 跟 `permission denied` 差在哪。
 
 ## 先備知識
 
@@ -18,7 +18,7 @@
 
 W01 裝好 Docker 用 sudo 一路順暢，W03 三台 VM 也跑起來了。但某天登入 bastion 打 `docker ps` 回 `permission denied`；同學打 `docker` 直接 `command not found`；另一台 VM 重開機後 daemon 沒起來，`docker run` 回 `Cannot connect to the Docker daemon`。
 
-三種錯誤、三個根因——權限、$PATH、服務。不搞懂 Linux 系統骨架就只能貼錯誤訊息碰運氣，跟擲骰子沒兩樣。
+三種錯誤、三個根因——權限、$PATH、服務。不理解 Linux 系統骨架就只能貼錯誤訊息亂猜，找不到根因。
 
 ---
 
@@ -72,7 +72,7 @@ flowchart TB
 | `/usr/bin/docker` | 使用者可執行檔 | Docker CLI 工具 | `/usr/bin/` 放的是安裝的應用程式執行檔 |
 | `/run/docker.sock` | 執行期暫存（PID/socket） | Docker daemon 的 Unix socket | 開機時由 daemon 建立，關機就消失 |
 
-搞懂 FHS 的好處：要改 Docker 設定，直覺就知道去 `/etc/docker/`；想清理映像佔用的空間，直覺知道去看 `/var/lib/docker/`；想確認 Docker CLI 裝在哪，用 `which docker` 會指向 `/usr/bin/docker`。
+理解 FHS 的好處：要改 Docker 設定，直覺就知道去 `/etc/docker/`；想清理映像佔用的空間，直覺知道去看 `/var/lib/docker/`；想確認 Docker CLI 裝在哪，用 `which docker` 會指向 `/usr/bin/docker`。
 
 ### 二、權限模型與 Docker Socket
 
@@ -308,7 +308,7 @@ file $(which docker)
 
 ---
 
-### Part B：搞懂權限——誰能碰 Docker？
+### Part B：釐清權限——誰能存取 Docker？
 
 #### 步驟 7：解讀 Docker Socket 權限
 
@@ -566,7 +566,7 @@ docker run --rm alpine env
 
 ---
 
-### Part E：故意搞壞 Docker 再修回來
+### Part E：故意破壞 Docker 再修回來
 
 #### 故障場景一：停止 Docker Daemon
 
@@ -905,7 +905,7 @@ docker run --rm hello-world
 3. **Socket 可存取？** → `ls -la /var/run/docker.sock`（`permission denied` → 查權限 / 群組）
 4. **請求成功？** → `docker ps`（讀錯誤訊息判斷卡在哪一層）
 
-這對應並延伸 W01 的四層驗證鏈（Repository → Engine → Daemon → hello-world），現在能從 OS 層面搞懂每一層的意義：
+這對應並延伸 W01 的四層驗證鏈（Repository → Engine → Daemon → hello-world），現在能從 OS 層面理解每一層的意義：
 
 | W01 四層驗證 | W04 系統層對應 |
 |---|---|
@@ -916,7 +916,7 @@ docker run --rm hello-world
 
 ---
 
-做到這裡，你已經把 Linux 系統骨架的四根柱子——檔案結構、權限、服務、環境變數——全部摸過一遍，而且親手把 Docker 搞壞兩次再修回來。下次碰到 `Cannot connect` 或 `permission denied`，你不會再對著螢幕發呆，而是知道該查 daemon 還是查權限。這就是「讀懂錯誤訊息」跟「貼錯誤訊息問 ChatGPT」的差距。
+做到這裡，你已經把 Linux 系統骨架的四根柱子——檔案結構、權限、服務、環境變數——全部摸過一遍，而且親手把 Docker 破壞兩次再修回來。下次碰到 `Cannot connect` 或 `permission denied`，你不會再無從下手，而是知道該查 daemon 還是查權限。這就是「讀懂錯誤訊息」跟「貼錯誤訊息問 ChatGPT」的差距。
 
 ### 延伸閱讀
 

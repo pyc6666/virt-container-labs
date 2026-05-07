@@ -127,7 +127,7 @@ sequenceDiagram
     Note over RS_NEW: 3 Pods (1.27)
 ```
 
-**`kubectl rollout undo` 就是把這個流程倒著跑一次**——並非「魔法穿越時空」，是**一次新的 rolling update 把現實拉回舊版**。
+**`kubectl rollout undo` 就是把這個流程倒著跑一次**——並非「穿越時空回到舊版本」，而是**用一次新的 rolling update 把現實拉回舊版**。
 
 ### 四、Service：讓「會死的 Pod」有「不會變的入口」
 
@@ -237,7 +237,7 @@ cd ~/virt-container-labs/w10
 
 - 預期觀察：node Ready、kube-system Pod 都 Running 或 Completed。如果 node NotReady，先回 W09「常見錯誤」處理。
 
-> **Checkpoint A** — k3s 還在跑，準備幹活。
+> **Checkpoint A** — k3s 還在跑，準備開始操作。
 
 ---
 
@@ -426,7 +426,7 @@ web-...-48f7x   0/1     Terminating
 kubectl describe rs $(kubectl get rs -l app=web -o name | head -1) | grep -A5 "Events:"
 ```
 
-- 預期觀察：events 裡有 `SuccessfulCreate` 訊息——是 ReplicaSet controller 看到「現在只有 2 個」才主動建第 3 個。**ReplicaSet 才是真的補 Pod 的人**，不是 Deployment、不是 K8s 抽象魔法。
+- 預期觀察：events 裡有 `SuccessfulCreate` 訊息——是 ReplicaSet controller 看到「現在只有 2 個」才主動建第 3 個。**ReplicaSet 才是真的補 Pod 的人**——不是 Deployment 直接動手、也不是某個看不見的 K8s 抽象層做的。
 
 > **Checkpoint C** — 親手刪 Pod，看到 1–3 秒內被補回；能說出這件事是 ReplicaSet controller 做的，不是 Deployment。
 
@@ -834,7 +834,7 @@ kubectl rollout history deployment/web > rollout-history.txt
 - 錯誤：host 端連不到 NodePort，但 VM 內 `curl localhost:NPORT` 通。
   診斷：(1) ufw 擋了 30000–32767；(2) VM 用 NAT 沒做 port forward；(3) hostname 解析錯（用 IP 確認）。
 
-- 錯誤：`kubectl expose deployment web` 後 service 名字怪怪的。
+- 錯誤：`kubectl expose deployment web` 後 service 名字不是預期的那個。
   診斷：`kubectl expose` 沒指定 `--name=` 時，service 名字 = deployment 名字。如果你已經有同名 service 會 error；用 `--name=web-svc` 明確指定。
 
 - 錯誤：`kubectl set image` 換到一個不存在的 tag，新 Pod 卡 `ImagePullBackOff`，但 Service 還是好好的。
@@ -880,6 +880,6 @@ W11 我們把「設定」跟「儲存」也搬進 K8s：
 - **ConfigMap**：你 W08 寫在 `compose.yaml` 的 `environment:` block，K8s 會用 ConfigMap 跟 Pod 解耦——一份設定可以掛進多個 Pod，改設定不用 rebuild image。
 - **Secret**：跟 ConfigMap 像，但 base64 encoded、有 RBAC——你 W08 用 `.env` 放 db 密碼，那個位置今天會變成 Secret。
 - **PVC + StorageClass**：你 W08 的 named volume，K8s 會抽象成「申請—分配」關係。k3s 內建的 `local-path-provisioner`（W09 看過）會把 PVC 真的掛到 host 上某個資料夾。
-- **Ingress**：你今天用的 NodePort 可以連，但 URL 是 `<vm-ip>:32xxx`——醜、不能 SSL、不能多服務共用 80。Ingress 把 hostname 當作分流條件——`api.example.com` 走 service A、`web.example.com` 走 service B，全部走 80。k3s 內建的 Traefik 就是現成的 Ingress controller。
+- **Ingress**：你今天用的 NodePort 可以連，但 URL 是 `<vm-ip>:32xxx`——不直覺、不能 SSL、不能多服務共用 80。Ingress 把 hostname 當作分流條件——`api.example.com` 走 service A、`web.example.com` 走 service B，全部走 80。k3s 內建的 Traefik 就是現成的 Ingress controller。
 
 W12 是 Compose → k8s 的真實遷移實作 + 期末專題說明。今天留下的 `web` Deployment 跟 `web-svc` Service 下週都會用。
