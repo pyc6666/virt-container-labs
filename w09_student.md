@@ -176,7 +176,7 @@ k3s 是 Rancher（現在歸 SUSE）做的「精簡 Kubernetes 發行版」，CNC
 
 - **SQLite datastore**：單一檔案、不能 HA（高可用）。production 要 HA 必須切到 embedded etcd 或外部 MySQL/PostgreSQL。
 - **單 process 全包**：好處是省記憶體、壞處是 component 之間沒有 process 隔離——一個 panic 全死。但因為都是 Go 寫的同一個程式，實際上很少出這種事。
-- **Klipper-LB 是 hack**：它本質上是「在 node 上開一個 hostPort + iptables redirect」，不是真的 LoadBalancer。production 跑公雲還是要用真 LB。
+- **Klipper-LB 是 hack**：它本質上是「在 node 上開一個 hostPort + iptables redirect」，不是真的 LoadBalancer。`EXTERNAL-IP` 直接填 node 自己的 IP，**單節點 / 單 hostPort 不衝突的情境下會 work**；但兩個 LoadBalancer Service 都想用 80 就會有一個搶不到、卡 `<pending>`。production 跑公雲還是要用真 LB。
 
 > **想一想**：如果今天你公司跟你說「我們要在工廠的 30 台 ARM 工控機上跑邊緣運算服務」，你會選 upstream K8s 還是 k3s？為什麼？提示：每台工控機可能只有 4 GB RAM、跑半離線、要自己 OTA 更新。
 
@@ -261,7 +261,7 @@ stat -fc %T /sys/fs/cgroup/
 mount | grep cgroup2
 ```
 
-- 預期觀察：第一條印 `cgroup2fs`；第二條看到 `cgroup2 on /sys/fs/cgroup type cgroup2`。
+- 預期觀察：第一條印 `cgroup2fs`；第二條看到一行包含 `... type cgroup2 (...)`（第一欄通常是 `none` 或 `cgroup2`，視發行版而定）。
 - 對照：如果印 `tmpfs`，代表是 cgroup v1，k3s 還是會跑但某些 pod 行為會差。Ubuntu 22.04 / 24.04 預設 v2，不會踩到。
 
 > **Checkpoint A** — VM 規格符合 k3s 官方下限，cgroup v2 啟用。
@@ -317,7 +317,7 @@ kubectl get nodes -o wide
 ```
 
 - 預期觀察：
-  - 一行，`STATUS=Ready`，`ROLES` 包含 `control-plane,master`，`VERSION` 是 `v1.x.y+k3s1`。
+  - 一行，`STATUS=Ready`，`ROLES` 是 `control-plane`，`VERSION` 是 `v1.x.y+k3s1`（k3s 1.35.x 起 ROLES 不再含 `master` 字樣，這是 upstream Kubernetes 1.24 拿掉舊 label 的延續）。
   - **如果 `STATUS=NotReady`，等 30–60 秒再試**——CNI（Flannel）剛起來時 node 會短暫 NotReady。超過 2 分鐘還是 NotReady 才是有事。
 
 - 如果 `kubectl: command not found`：k3s 安裝時把 `kubectl` symlink 到 `/usr/local/bin/kubectl`，可能 `$PATH` 沒包含 `/usr/local/bin`。檢查 `echo $PATH`，或用 `sudo k3s kubectl get nodes` 走 k3s 內建 wrapper。
@@ -339,13 +339,22 @@ kubectl get svc -n kube-system
 kubectl get pods -n kube-system -o wide
 ```
 
-- 預期觀察（順序、數量會略有不同）：
+- 預期觀察（順序、數量、hash 後綴會略有不同）：
   - **`coredns-...`**：cluster DNS。所有 Pod 想透過 service 名稱找彼此都要靠它。
-  - **`metrics-server-...`**：`kubectl top pods` / `top nodes` 才有資料。
+  - **`metrics-server-...`**：`kubectl top pods` / `top nodes` 才有資料（裝完約 30 秒～1 分鐘後才會回傳數字）。
   - **`local-path-provisioner-...`**：之後 W11 你建 PVC 時，它會在 host 上開資料夾掛進去。
   - **`traefik-...`**：ingress controller，預設聽 80 / 443。
-  - **`svclb-traefik-...`**：Klipper-LB 為 traefik 那個 LoadBalancer 服務開的「hostPort 旁邊小工人」，每個 node 一個（你只有一個 node，所以只有一個）。
-  - **`helm-install-traefik-...` / `helm-install-...`**：完成後會變 `Completed` 狀態，是用 Helm CRD 把 Traefik 部署起來的一次性 Job。
+  - **`svclb-traefik-...`**：Klipper-LB（servicelb）為 traefik 那個 LoadBalancer service 起的「hostPort 代理」，每 node 一個 Pod，**Pod 內每個對外 port 一個 container**——所以你會看到 `READY 2/2`（Traefik 開 80 + 443，所以兩個 container：`lb-tcp-80`、`lb-tcp-443`）。
+  - **`helm-install-traefik-...` 與 `helm-install-traefik-crd-...`**：兩個一次性 Job，完成後變 `Completed`——一個裝 Traefik 本體、一個裝它需要的 CRD。`RESTARTS` 偶爾會是 1（首次拉 image 失敗就會重試），只要最後是 `Completed` 就 OK。
+
+- 也順便看 service：
+
+```bash
+kubectl get svc -n kube-system
+```
+
+  - `kube-dns` 應該是 ClusterIP `10.43.0.10`（W09 第四段預設值）。
+  - `traefik` 是 LoadBalancer 類型，`EXTERNAL-IP` **應該印出你 VM 的 IP**（不是 `<pending>`）——這就是 Klipper-LB 把 node IP 直接填上去的「假 LB」做法。如果是 `<pending>`，看「常見錯誤」那段。
 
 #### 步驟 8：對照「W09 哪一段講的角色」
 
@@ -372,15 +381,16 @@ kubectl get pods -n kube-system -o wide
 - 命令：
 
 ```bash
-ps -ef | grep -E "k3s|containerd|kubelet|kube-proxy|kube-apiserver" | grep -v grep | awk '{print $2, $8, $9, $10}'
+ps -ef | grep -E "k3s|containerd|kubelet|kube-proxy|kube-apiserver|kube-controller|kube-scheduler" | grep -v grep
 ```
 
 - 預期觀察：
-  - **一條** `k3s server`（主程序，包含 apiserver / scheduler / controller-manager / kubelet / kube-proxy 全部 goroutine）。
-  - **一條** `containerd`（k3s 用 `--root /var/lib/rancher/k3s/agent/containerd` 起的，跟你 W05–W08 用的 Docker containerd 是不同 instance）。
-  - 一些 `containerd-shim-runc-v2`（每個 Pod 對應一個）。
+  - **一條** `/usr/local/bin/k3s server`（主程序；apiserver / scheduler / controller-manager / kubelet / kube-proxy 全部以 goroutine 形式跑在這條 process 內）。
+  - **一條** `containerd`（k3s 在 `/var/lib/rancher/k3s/...` 下起的獨立 instance，跟你 W05–W08 用的 Docker containerd 是不同 daemon、不同 socket）。
+  - 數條 `containerd-shim-runc-v2`（每個 Pod 對應一個）。
+  - **可能還會看到**某些 Pod 內服務 process 直接列在 host 上，例如 `metrics-server` 自己——這是因為它跑在 host PID namespace 看得到的位置（容器隔離不影響 host `ps` 列出處理程序），不是另一個 daemon。
 
-- **對照**：upstream Kubernetes 同樣的元件，你會看到 `kube-apiserver`、`kube-scheduler`、`kube-controller-manager`、`kubelet`、`kube-proxy` **五個獨立 process**。k3s 把它們合成一條 `k3s server`。
+- **沒有獨立的** `kube-apiserver` / `kube-scheduler` / `kube-controller-manager` / `kubelet` / `kube-proxy` 程序——這正是 k3s 「單 binary 多 component」的證據。對照 upstream Kubernetes，你在 control-plane node 上會看到這五支獨立 process。
 
 #### 步驟 10：看 cgroup（連回 W05）
 
@@ -555,13 +565,18 @@ diff resources-before.txt resources-after.txt || true
 - 錯誤：node 一直 `NotReady`，超過 2 分鐘。
   診斷：先看 `journalctl -u k3s --no-pager | tail -50`。常見原因：
   - 防火牆擋了 `flannel` 的 VXLAN port（UDP 8472）——`sudo ufw status` 確認；單節點通常不會踩。
-  - kernel 沒載 `vxlan` 模組——`lsmod | grep vxlan`，沒看到就 `sudo modprobe vxlan`。
+  - kernel 沒載 `vxlan` 模組——判定方式是 **看 `flannel.1` 介面有沒有起來**（`ip addr show flannel.1`），看不到才需要 `sudo modprobe vxlan`。`lsmod | grep vxlan` 為空不一定代表沒載，有些 kernel 把 vxlan 編譯進核心而不是模組，這時 lsmod 看不到但功能正常。
 
 - 錯誤：`traefik` service 的 `EXTERNAL-IP` 一直 `<pending>`。
   診斷：Klipper-LB 起不來，通常是 host 的 80 / 443 已經被佔（你的 W08 還在跑 nginx？）。`sudo ss -tlnp | grep -E ':80|:443'` 確認，砍掉佔用者。
 
 - 錯誤：`docker ps` 看不到 k3s 跑的 Pod 對應的 container。
-  診斷：**正常**。k3s 用內建 containerd（不是你 W05–W08 安裝的 Docker containerd），是不同 instance。要看 k3s 的容器用 `sudo k3s crictl ps` 或 `sudo k3s ctr -n k8s.io containers list`。
+  診斷：**正常**。k3s 用內建 containerd（不是你 W05–W08 安裝的 Docker containerd），是不同 instance。要看 k3s 的容器：
+  - `sudo crictl ps`（k3s 安裝時已把 `crictl` symlink 進 `/usr/local/bin/`，可直接用）
+  - `sudo k3s ctr -n k8s.io containers list`（透過 ctr 看 k8s.io namespace 的容器）
+
+- 訊息：安裝 log 印 `[INFO]  Host iptables-save/iptables-restore tools not found`。
+  診斷：**正常**。Ubuntu 24.04 預設沒裝 `iptables-persistent` 之類套件，所以 host 沒有 `iptables-save` 命令；k3s 會用自己內建的 iptables binary，不需要 host 那一套。網路功能不受影響。
 
 - 錯誤：磁碟瞬間少了好幾 GB。
   診斷：k3s 把所有 image cache 在 `/var/lib/rancher/k3s/`。`sudo du -sh /var/lib/rancher/k3s/agent/containerd` 看看，跟 docker 的 `/var/lib/docker` 是分開的。
