@@ -17,12 +17,20 @@ Containerization and Virtualization Technologies
 | W05 | 容器底層原理：Namespace、Cgroups、Union FS | /proc/\<pid\>/ns、cgroup v2、overlay2、OCI |
 | W06 | Docker Image 與 Dockerfile | Dockerfile 指令、layer 快取、multi-stage build |
 | 期中 | [期中實作：雙 VM 分層部署與故障排查](midterm_student.md) | 整合 W01–W06，約 2 小時 |
+| W07 | Docker Compose 與資料持久化 | compose.yaml、named volume / bind / tmpfs、depends_on + healthcheck |
+| W08 | 容器生產實踐：健康檢查、日誌、資源限制與安全 | healthcheck、logging driver、`mem_limit`/`cpus`、`USER`/`--cap-drop` |
+| W09 | 從 Docker 到 Kubernetes：架構與 k3s 定位 | k8s 控制平面、kubelet/kube-proxy、k3s vs minikube vs kind |
+| W10 | k3s 核心物件：Pod、Deployment、Service | kubectl、Deployment/ReplicaSet 自癒、ClusterIP/NodePort |
+| W11 | 組態、機密與儲存：ConfigMap、Secret、PVC、Ingress | ConfigMap/Secret、PVC、k3s 內建 traefik ingress |
+| W12 | Compose 至 k3s 遷移實作 + 期末專題說明 | 對照寫法、`kompose`、期末規格 |
+| 期末 | 期末小專題（2 人一組）：把 Compose 應用搬上 k3s | 整合 W01–W12，demo 錄影 + 文件 |
 
 ## 環境需求
 
-- VMware Workstation Pro（Windows/Linux）或相容替代方案（Mac）
-- Ubuntu Server VM
-- Docker Engine
+- **Windows**：VMware Workstation Pro + Ubuntu Server VM
+- **Mac**：UTM + Ubuntu Server (ARM64) VM
+- Docker Engine（含 docker-compose-plugin）
+- k3s（W09 起，單節點 server-only 模式）
 
 ## 授權
 
