@@ -530,12 +530,16 @@ sudo dmesg -T | tail -5 > ~/virt-container-labs/w05/oom-before.txt
 ```bash
 docker rm -f oom-demo 2>/dev/null
 docker run --name oom-demo --memory=32m alpine \
-    sh -c 'apk add --no-cache stress-ng >/dev/null 2>&1; stress-ng --vm 1 --vm-bytes 200M --timeout 20s'
+    sh -c 'dd if=/dev/zero of=/dev/shm/big bs=1M count=200'
 echo "docker exit code: $?"
 ```
 
-- 預期：`stress-ng` 嘗試配置 200 MB 記憶體，超過 32 MB 限制後被 kill，`docker run` exit code 非 0（通常是 137 = 128 + 9 = SIGKILL）。
-- 重點：要觸發 memory cgroup OOM，**壓力必須打在 RAM 上**（anonymous pages）。`dd if=/dev/zero of=/tmp/fill` 這種寫檔方式預設寫到容器的可寫層（磁碟），不會吃 RAM，OOM 根本不會發生；若 exit code 不是 137，多半代表壓力模型沒命中。
+- 預期：`dd` 寫到第 32 MB 左右就被 SIGKILL 砍，`docker run` 印 `exit code: 137`。
+- **關鍵設計點**：要觸發 memory cgroup OOM，**寫入的目標必須是「會算進 cgroup 記憶體」的地方**：
+  - `/dev/shm/...`（tmpfs，掛在記憶體）→ ✓ 會吃 cgroup memory，可以 OOM
+  - `/tmp/fill` 在容器內預設是 overlay2 可寫層（磁碟）→ ✗ 不吃 RAM，不會 OOM
+  - `dd of=/dev/null` → ✗ 完全不存任何資料，只燒 CPU
+- **為什麼不用 stress-ng？** stress-ng 採用 fork-supervisor 設計：parent 開 worker 配記憶體、worker 被 OOM 殺後 parent 會 catch SIGCHLD 並回報「passed」，**容器整體 exit code = 0、OOMKilled=true 但 ExitCode≠137**——學生看到 stress-ng 印 "successful run completed" 會以為實驗失敗。`dd if=/dev/zero of=/dev/shm/...` 是單程序、PID 1 直接被殺，乾乾淨淨拿到 137。
 
 #### 步驟 20：抓 OOM 證據
 
@@ -546,8 +550,8 @@ sudo dmesg -T | grep -i "out of memory\|oom" | tail -10
 ```
 
 - 預期：
-  - `docker inspect` 印出 `true 137` → Docker 確認是 OOM Kill。
-  - `dmesg` 裡能看到類似 `Memory cgroup out of memory: Killed process ... dd`。
+  - `docker inspect` 印出 `true 137` → Docker 確認是 OOM Kill（OOMKilled=true、ExitCode=137）。
+  - `dmesg` 裡能看到類似 `Memory cgroup out of memory: Killed process ... dd`。注意 `dmesg` 的 OOM 訊息只有在 host kernel ring buffer 還沒被沖掉之前看得到；如果隔了一陣子才查，可能要從 `journalctl -k` 撈。
 
 把故障中的 dmesg 存起來：
 
@@ -570,12 +574,12 @@ cat ~/virt-container-labs/w05/oom-evidence.txt
 ```bash
 docker rm -f oom-demo
 docker run --name oom-ok --memory=256m alpine \
-    sh -c 'dd if=/dev/zero of=/tmp/fill bs=1M count=200 && echo DONE'
+    sh -c 'dd if=/dev/zero of=/dev/shm/big bs=1M count=200 && echo DONE'
 docker logs oom-ok | tail
 docker rm -f oom-ok
 ```
 
-- 預期：這次 `dd` 跑完印 `DONE`，exit code 0。
+- 預期：寫 200 MB 到 `/dev/shm` 在 256 MB 限制下沒問題，`dd` 跑完印 `DONE`，exit code 0。
 - 把「故障前 / 故障中 / 回復後」三段貼進 `oom-evidence.txt` 才算完整。
 
 > **Checkpoint C2**｜OOM 三階段證據齊全：`oom-evidence.txt` 有故障前 dmesg、故障中的 `Memory cgroup out of memory`、回復後成功的 `DONE`；能講出 exit code 137 的意義。
@@ -860,7 +864,8 @@ docker rm -f chk
   診斷：`nsenter` 需要 root 權限（因為進別人的 namespace 等於跨隔離邊界）。前面加 `sudo`。
 
 - 錯誤：故障注入 `docker run --memory=32m ... dd count=200` 沒有 OOM，`dd` 跑完了。
-  診斷：`dd of=/tmp/fill` 寫到容器的可寫層（磁碟），不是 memory。要改成 `dd of=/dev/null` 或 `tr /dev/urandom | head -c 200M | md5sum` 之類**真的吃 RAM** 的命令；或用 `stress-ng --vm 1 --vm-bytes 200M` 更直接。
+  診斷：`dd of=/tmp/fill` 寫到容器的可寫層（磁碟），不是 memory cgroup 算的範圍。把目標改成 `/dev/shm/...`（tmpfs，會算進 cgroup memory）就會乾淨觸發 OOM。
+  注意：用 `stress-ng --vm 1 --vm-bytes 200M` 看起來像更直接的方案，但它的 fork-supervisor 設計會讓 worker 被殺後 parent 重 fork、容器整體 ExitCode=0、OOMKilled=true 但**不是 137**——對教學會造成困擾。要看到乾淨的 137，請用單一程序的 `dd if=/dev/zero of=/dev/shm/big`。
 
 - 錯誤：`docker run` 回 `OCI runtime create failed: ... cgroup`。
   診斷：cgroup driver 不一致（Docker 用 cgroupfs，但 host 用 systemd，或反過來）。用 `docker info | grep -i "Cgroup Driver\|Cgroup Version"` 確認 Docker 側設定，再比對 `/etc/docker/daemon.json` 是否寫了 `"exec-opts": ["native.cgroupdriver=systemd"]`；必要時加上這行讓 Docker 對齊 systemd。
